@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx vercel:*)",
+      "Bash(unzip:*)",
+      "Read(//d//**)",
+      "Bash(grep:*)",
+      "Bash(ls:*)",
+      "Bash(curl:*)",
+      "Bash(echo === Feb 27 order \\(old\\) ===:*)"
+    ]
+  }
+}
