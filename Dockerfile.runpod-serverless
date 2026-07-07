@@ -2,6 +2,7 @@ FROM python:3.11-bookworm
 
 ARG REAL_ESRGAN_RELEASE_URL=https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-ubuntu.zip
 
+
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
     ca-certificates \
