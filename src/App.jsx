@@ -33,7 +33,7 @@ function Login() {
           <img src='/logo.png' alt='Logo' style={{ height: '48px', objectFit: 'contain' }} />
         </div>
         <h1 style={{ color: 'var(--text-primary)', fontSize: '22px', fontWeight: '600', marginBottom: '8px' }}>
-          Professor Dashboard
+          TCGPlaytest Dashboard
         </h1>
         <p style={{ color: 'var(--text-muted)', fontSize: '14px', marginBottom: '32px' }}>
           Sign in with an approved Google account
