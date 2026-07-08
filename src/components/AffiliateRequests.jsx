@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Check, Clock, Copy, ExternalLink, Gift, RefreshCw, Search, Users, WalletCards, X } from 'lucide-react';
+import { Check, Clock, Copy, Gift, RefreshCw, Search, Users, WalletCards, X } from 'lucide-react';
 import { getAdminAuthHeaders, supabaseAdmin } from '../services/supabaseClient';
 import './AffiliateRequests.css';
 
@@ -216,9 +216,11 @@ export default function AffiliateRequests() {
                   <div className="approved-member-balance">
                     <strong>{balance.toLocaleString()}</strong><span>PRINTS</span>
                   </div>
-                  {member.affiliate_link ? (
-                    <a href={member.affiliate_link} target="_blank" rel="noreferrer">Affiliate link <ExternalLink size={13} /></a>
-                  ) : <span className="approved-member-no-link">No link</span>}
+                  {member.affiliate_code ? (
+                    <button type="button" onClick={() => navigator.clipboard.writeText(member.affiliate_code)}>
+                      <Copy size={13} /> {member.affiliate_code}
+                    </button>
+                  ) : <span className="approved-member-no-link">No code</span>}
                   <button
                     type="button"
                     onClick={() => {
@@ -340,19 +342,17 @@ export default function AffiliateRequests() {
                         <p>{request.decision_message}</p>
                       </div>
                     )}
-                    {status === 'approved' && request.affiliate_link && (
+                    {status === 'approved' && request.affiliate_code && (
                       <div className="affiliate-link">
                         <div>
-                          <span>Affiliate link</span>
-                          <a href={request.affiliate_link} target="_blank" rel="noreferrer">
-                            {request.affiliate_link} <ExternalLink size={13} />
-                          </a>
+                          <span>Affiliate code</span>
+                          <strong>{request.affiliate_code}</strong>
                         </div>
                         <button
                           type="button"
-                          onClick={() => navigator.clipboard.writeText(request.affiliate_link)}
+                          onClick={() => navigator.clipboard.writeText(request.affiliate_code)}
                         >
-                          <Copy size={15} /> Copy link
+                          <Copy size={15} /> Copy code
                         </button>
                       </div>
                     )}
@@ -371,7 +371,7 @@ export default function AffiliateRequests() {
                 <span>{dialog.action === 'approved' ? 'Approve application' : 'Reject application'}</span>
                 <p>
                   {dialog.action === 'approved'
-                    ? `This updates the profile, creates a unique affiliate link, and emails ${dialog.request.name || dialog.request.email}.`
+                    ? `This updates the profile, creates a unique affiliate code, and emails ${dialog.request.name || dialog.request.email}.`
                     : `This updates the profile status and emails ${dialog.request.name || dialog.request.email}.`}
                 </p>
               </div>
