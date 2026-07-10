@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Check, Clock, Copy, Gift, RefreshCw, Search, Users, WalletCards, X } from 'lucide-react';
+import { Check, Clock, Copy, ExternalLink, Gift, RefreshCw, Search, Users, WalletCards, X } from 'lucide-react';
 import { getAdminAuthHeaders, supabaseAdmin } from '../services/supabaseClient';
 import './AffiliateRequests.css';
 
@@ -100,6 +100,7 @@ export default function AffiliateRequests() {
   const openDecision = (request, action) => setDialog({
     request,
     action,
+    approvalType: 'code',
     message: decisionCopy(request, action),
     error: '',
   });
@@ -166,6 +167,7 @@ export default function AffiliateRequests() {
         body: JSON.stringify({
           requestId: dialog.request.id,
           action: dialog.action,
+          approvalType: dialog.approvalType,
           message: dialog.message.trim(),
         }),
       });
@@ -216,11 +218,11 @@ export default function AffiliateRequests() {
                   <div className="approved-member-balance">
                     <strong>{balance.toLocaleString()}</strong><span>PRINTS</span>
                   </div>
-                  {member.affiliate_code ? (
-                    <button type="button" onClick={() => navigator.clipboard.writeText(member.affiliate_code)}>
-                      <Copy size={13} /> {member.affiliate_code}
+                  {member.affiliate_link || member.affiliate_code ? (
+                    <button type="button" onClick={() => navigator.clipboard.writeText(member.affiliate_link || member.affiliate_code)}>
+                      <Copy size={13} /> {member.affiliate_link ? 'Link' : member.affiliate_code}
                     </button>
-                  ) : <span className="approved-member-no-link">No code</span>}
+                  ) : <span className="approved-member-no-link">No code/link</span>}
                   <button
                     type="button"
                     onClick={() => {
@@ -345,14 +347,15 @@ export default function AffiliateRequests() {
                     {status === 'approved' && request.affiliate_code && (
                       <div className="affiliate-link">
                         <div>
-                          <span>Affiliate code</span>
-                          <strong>{request.affiliate_code}</strong>
+                          <span>{request.affiliate_link ? 'Affiliate link' : 'Affiliate code'}</span>
+                          <strong>{request.affiliate_link || request.affiliate_code}</strong>
                         </div>
                         <button
                           type="button"
-                          onClick={() => navigator.clipboard.writeText(request.affiliate_code)}
+                          onClick={() => navigator.clipboard.writeText(request.affiliate_link || request.affiliate_code)}
                         >
-                          <Copy size={15} /> Copy code
+                          {request.affiliate_link ? <ExternalLink size={15} /> : <Copy size={15} />}
+                          {request.affiliate_link ? 'Copy link' : 'Copy code'}
                         </button>
                       </div>
                     )}
@@ -371,12 +374,36 @@ export default function AffiliateRequests() {
                 <span>{dialog.action === 'approved' ? 'Approve application' : 'Reject application'}</span>
                 <p>
                   {dialog.action === 'approved'
-                    ? `This updates the profile, creates a unique affiliate code, and emails ${dialog.request.name || dialog.request.email}.`
+                    ? `This updates the profile, creates a unique affiliate ${dialog.approvalType === 'link' ? 'link' : 'code'}, and emails ${dialog.request.name || dialog.request.email}.`
                     : `This updates the profile status and emails ${dialog.request.name || dialog.request.email}.`}
                 </p>
               </div>
               <button type="button" aria-label="Close" onClick={() => setDialog(null)} disabled={sending}><X size={20} /></button>
             </div>
+            {dialog.action === 'approved' && (
+              <div className="affiliate-approval-type">
+                <label>
+                  <input
+                    type="radio"
+                    name="approvalType"
+                    value="code"
+                    checked={dialog.approvalType !== 'link'}
+                    onChange={() => setDialog((current) => ({ ...current, approvalType: 'code' }))}
+                  />
+                  Approve with code
+                </label>
+                <label>
+                  <input
+                    type="radio"
+                    name="approvalType"
+                    value="link"
+                    checked={dialog.approvalType === 'link'}
+                    onChange={() => setDialog((current) => ({ ...current, approvalType: 'link' }))}
+                  />
+                  Approve with VIP link
+                </label>
+              </div>
+            )}
             <label>
               Profile and email message
               <textarea
