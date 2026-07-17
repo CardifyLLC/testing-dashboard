@@ -270,7 +270,7 @@ const Emailer = () => {
       );
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to send');
-      setResult({ type: 'success', message: `Sent to ${data.sent} recipient${data.sent !== 1 ? 's' : ''}.${data.failed > 0 ? ` ${data.failed} failed.` : ''}` });
+      setResult({ type: 'success', message: `Sent to ${data.sent} recipient${data.sent !== 1 ? 's' : ''}.${data.failed > 0 ? ` ${data.failed} failed${data.firstError ? `: ${data.firstError}` : '.'}` : ''}` });
       setEmails([]);
       setSubject('');
       setBody('');
