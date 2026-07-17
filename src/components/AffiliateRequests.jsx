@@ -101,6 +101,7 @@ export default function AffiliateRequests() {
     request,
     action,
     approvalType: 'code',
+    affiliateCode: request.requested_affiliate_code || '',
     message: decisionCopy(request, action),
     error: '',
   });
@@ -168,6 +169,7 @@ export default function AffiliateRequests() {
           requestId: dialog.request.id,
           action: dialog.action,
           approvalType: dialog.approvalType,
+          affiliateCode: dialog.action === 'approved' ? dialog.affiliateCode.trim().toUpperCase() : undefined,
           message: dialog.message.trim(),
         }),
       });
@@ -321,6 +323,7 @@ export default function AffiliateRequests() {
                 <dl className="affiliate-details">
                   <div><dt>Primary channel</dt><dd>{label(request.primary_channel)}</dd></div>
                   <div><dt>Audience size</dt><dd>{request.audience_size?.toLocaleString?.() || request.audience_size || 'Not provided'}</dd></div>
+                  <div><dt>Requested code</dt><dd>{request.requested_affiliate_code || 'No preference'}</dd></div>
                   <div><dt>Submitted</dt><dd>{formatDate(request.created_at)}</dd></div>
                   {status !== 'pending' && <div><dt>Decision date</dt><dd>{formatDate(request.reviewed_at || request.updated_at)}</dd></div>}
                 </dl>
@@ -380,7 +383,12 @@ export default function AffiliateRequests() {
               </div>
               <button type="button" aria-label="Close" onClick={() => setDialog(null)} disabled={sending}><X size={20} /></button>
             </div>
+            <div className="affiliate-requested-code">
+              <span>Requested affiliate code</span>
+              <strong>{dialog.request.requested_affiliate_code || 'No preference provided'}</strong>
+            </div>
             {dialog.action === 'approved' && (
+              <>
               <div className="affiliate-approval-type">
                 <label>
                   <input
@@ -403,6 +411,19 @@ export default function AffiliateRequests() {
                   Approve with VIP link
                 </label>
               </div>
+              <label>
+                Affiliate code
+                <input
+                  required
+                  minLength={3}
+                  maxLength={32}
+                  pattern="[A-Za-z0-9_-]{3,32}"
+                  value={dialog.affiliateCode}
+                  onChange={(event) => setDialog((current) => ({ ...current, affiliateCode: event.target.value.toUpperCase().replace(/[^A-Z0-9_-]/g, '') }))}
+                  placeholder="Affiliate code"
+                />
+              </label>
+              </>
             )}
             <label>
               Profile and email message
