@@ -49,6 +49,8 @@ export default function AffiliateRequests() {
   const [walletBalances, setWalletBalances] = useState({});
   const [qrPreview, setQrPreview] = useState(null);
   const [qrGenerating, setQrGenerating] = useState('');
+  const [backfillingQr, setBackfillingQr] = useState(false);
+  const [backfillResult, setBackfillResult] = useState('');
 
   const loadRequests = useCallback(async () => {
     setLoading(true);
@@ -140,6 +142,40 @@ export default function AffiliateRequests() {
     link.href = qrPreview.dataUrl;
     link.download = `affiliate-${safeCode}-qr.png`;
     link.click();
+  };
+
+  const generateMissingQrCodes = async () => {
+    if (backfillingQr) return;
+    const missingCount = approvedMembers.filter((member) => member.affiliate_link && !member.affiliate_qr_code_url).length;
+    if (missingCount === 0) {
+      setBackfillResult('All approved affiliates with links already have stored QR assets.');
+      return;
+    }
+    if (!window.confirm(`Generate and email QR assets for ${missingCount} approved affiliate${missingCount === 1 ? '' : 's'}?`)) return;
+
+    setBackfillingQr(true);
+    setBackfillResult('');
+    setError('');
+    try {
+      const authHeaders = await getAdminAuthHeaders();
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/affiliate-request-action`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify({ action: 'backfill_qr' }),
+      });
+      const result = await readFunctionResponse(response);
+      if (!response.ok) throw new Error(result.error || 'Could not generate missing QR assets.');
+      setBackfillResult(
+        result.processed === 0
+          ? 'No missing QR assets were found.'
+          : `Generated and emailed ${result.processed} affiliate QR set${result.processed === 1 ? '' : 's'}${result.failed ? `; ${result.failed} failed.` : '.'}`,
+      );
+      await loadRequests();
+    } catch (backfillError) {
+      setError(`QR backfill failed: ${backfillError.message}`);
+    } finally {
+      setBackfillingQr(false);
+    }
   };
 
   const submitPrintGrant = async (event) => {
@@ -239,8 +275,15 @@ export default function AffiliateRequests() {
             <h2><WalletCards size={19} /> Approved members</h2>
             <p>Live PRINTS balances for every approved affiliate.</p>
           </div>
-          <span>{approvedMembers.length} member{approvedMembers.length === 1 ? '' : 's'}</span>
+          <div className="approved-members-controls">
+            <button type="button" onClick={generateMissingQrCodes} disabled={backfillingQr}>
+              <QrCode size={15} />
+              {backfillingQr ? 'Generating...' : 'Generate missing QR codes'}
+            </button>
+            <span>{approvedMembers.length} member{approvedMembers.length === 1 ? '' : 's'}</span>
+          </div>
         </div>
+        {backfillResult && <div className="affiliate-backfill-result">{backfillResult}</div>}
         {approvedMembers.length === 0 ? (
           <div className="approved-members-empty">No approved affiliates yet.</div>
         ) : (
