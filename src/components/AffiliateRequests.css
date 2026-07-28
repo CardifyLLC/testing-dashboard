@@ -20,6 +20,11 @@
 .approved-members-heading h2 svg { color: #34d399; }
 .approved-members-heading p { margin: 0; color: var(--text-muted); font-size: .78rem; }
 .approved-members-heading > span { padding: 5px 9px; color: #34d399; background: rgba(16,185,129,.1); border-radius: 99px; font-size: .75rem; }
+.approved-members-controls { display: flex; align-items: center; gap: 8px; }
+.approved-members-controls > span { padding: 5px 9px; color: #34d399; background: rgba(16,185,129,.1); border-radius: 99px; font-size: .75rem; }
+.approved-members-controls button { display: flex; align-items: center; gap: 6px; padding: 8px 11px; color: white; background: #2563eb; border: 1px solid #3b82f6; border-radius: 8px; cursor: pointer; font-weight: 600; }
+.approved-members-controls button:disabled { opacity: .6; cursor: wait; }
+.affiliate-backfill-result { margin: -3px 0 12px; padding: 9px 11px; color: #34d399; background: rgba(16,185,129,.09); border: 1px solid rgba(16,185,129,.25); border-radius: 8px; font-size: .8rem; }
 .approved-members-list { display: grid; gap: 7px; }
 .approved-member-row { display: grid; grid-template-columns: minmax(200px, 1fr) 110px minmax(120px, .55fr) auto; align-items: center; gap: 14px; padding: 10px 12px; background: var(--bg-secondary); border-radius: 9px; }
 .approved-member-person { display: flex; align-items: center; gap: 10px; min-width: 0; }
@@ -123,4 +128,6 @@
   .print-grant-form button { justify-self: stretch; }
   .approved-member-row { grid-template-columns: 1fr auto; }
   .approved-member-row > a, .approved-member-no-link { grid-column: 1; }
+  .approved-members-heading { align-items: flex-start; flex-direction: column; }
+  .approved-members-controls { width: 100%; justify-content: space-between; }
 }
