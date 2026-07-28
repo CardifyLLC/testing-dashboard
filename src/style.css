@@ -77,6 +77,17 @@ button {
   display: flex;
   flex-direction: column;
   padding: 1.5rem;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.sidebar > nav {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 0.35rem;
+  scrollbar-gutter: stable;
 }
 
 .main-content {
@@ -95,6 +106,7 @@ button {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  flex-shrink: 0;
 }
 
 .logo span {
