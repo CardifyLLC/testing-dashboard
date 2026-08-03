@@ -45,11 +45,15 @@ export default function SharedDeckRequests() {
     if (!selected || selected.status !== 'pending') return;
     if (status === 'rejected' && !reason.trim()) { setError('Enter a rejection reason before declining this request.'); return; }
     setSaving(true); setError('');
-    const patch = { status, rejection_message: status === 'rejected' ? reason.trim() : null, decided_at: new Date().toISOString() };
-    const { error: saveError } = await supabase.from('shared_purchase_requests').update(patch).eq('id', selected.id).eq('status', 'pending');
-    if (saveError) setError(saveError.message); else {
-      setRequests(current => current.map(item => item.id === selected.id ? { ...item, ...patch } : item)); setReason('');
-    }
+    const { data: sessionData } = await supabase.auth.getSession();
+    const storefront = (import.meta.env.VITE_STOREFRONT_URL || 'https://testing123-prof.vercel.app').replace(/\/$/, '');
+    try {
+      const response = await fetch(`${storefront}/api/admin/shared-purchase-requests`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${sessionData?.session?.access_token || ''}` }, body: JSON.stringify({ id: selected.id, status, rejectionMessage: reason }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to save decision.');
+      setRequests(current => current.map(item => item.id === selected.id ? data.request : item)); setReason('');
+      if (data.warning) setError(data.warning);
+    } catch (saveError) { setError(saveError.message || String(saveError)); }
     setSaving(false);
   };
 
