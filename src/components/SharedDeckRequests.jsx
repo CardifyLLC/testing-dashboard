@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '../services/supabaseClient';
 
 const colors = { pending: '#f59e0b', approved: '#10b981', rejected: '#f43f5e' };
@@ -17,6 +17,8 @@ export default function SharedDeckRequests() {
   const [filter, setFilter] = useState('pending');
   const [search, setSearch] = useState('');
   const [reason, setReason] = useState('');
+  const [reasonError, setReasonError] = useState('');
+  const reasonInputRef = useRef(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -43,7 +45,12 @@ export default function SharedDeckRequests() {
 
   const decide = async status => {
     if (!selected || selected.status !== 'pending') return;
-    if (status === 'rejected' && !reason.trim()) { setError('Enter a rejection reason before declining this request.'); return; }
+    if (status === 'rejected' && !reason.trim()) {
+      setReasonError('Please enter a rejection message. This message will be emailed to the deck owner.');
+      reasonInputRef.current?.focus();
+      return;
+    }
+    setReasonError('');
     setSaving(true); setError('');
     const { data: sessionData } = await supabase.auth.getSession();
     const storefront = (import.meta.env.VITE_STOREFRONT_URL || 'https://testing123-prof.vercel.app').replace(/\/$/, '');
@@ -75,7 +82,7 @@ export default function SharedDeckRequests() {
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}><div><h2 style={{ margin: 0 }}>{selected.design_name}</h2><p style={{ color: 'var(--text-muted)' }}>{selected.requester_name || 'Customer'} · {selected.requester_email}</p></div><strong style={{ color: colors[selected.status], textTransform: 'uppercase' }}>{selected.status}</strong></div>
           <h3 style={{ marginTop: 24 }}>Uploaded card images ({images.length})</h3>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(130px,1fr))', gap: 12, maxHeight: 430, overflowY: 'auto' }}>{images.map(image => <figure key={image.key} style={{ margin: 0 }}><img src={image.src} alt={image.label} style={{ width: '100%', aspectRatio: '2.5 / 3.5', objectFit: 'cover', borderRadius: 8, border: '1px solid var(--border-color)' }} /><figcaption style={{ marginTop: 4, color: 'var(--text-muted)', fontSize: 11, textAlign: 'center' }}>{image.label}</figcaption></figure>)}</div>
-          {selected.status === 'pending' ? <><textarea value={reason} onChange={event => setReason(event.target.value)} placeholder="Rejection reason (required when rejecting)" rows={3} style={{ width: '100%', boxSizing: 'border-box', marginTop: 18, padding: 12, borderRadius: 8, border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)' }} /><div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 12 }}><button disabled={saving} onClick={() => decide('rejected')} style={{ padding: 13, borderRadius: 8, border: '1px solid #f43f5e', background: 'transparent', color: '#fb7185', fontWeight: 700, cursor: 'pointer' }}>Reject</button><button disabled={saving} onClick={() => decide('approved')} style={{ padding: 13, borderRadius: 8, border: 0, background: '#10b981', color: 'white', fontWeight: 700, cursor: 'pointer' }}>{saving ? 'Saving...' : 'Approve'}</button></div></> : <div style={{ marginTop: 18, padding: 14, borderRadius: 8, border: `1px solid ${colors[selected.status]}`, color: colors[selected.status] }}>Decision recorded{selected.rejection_message ? `: ${selected.rejection_message}` : '.'}</div>}
+          {selected.status === 'pending' ? <><label htmlFor="share-rejection-message" style={{ display: 'block', marginTop: 18, marginBottom: 7, fontWeight: 700 }}>Rejection message</label><textarea ref={reasonInputRef} id="share-rejection-message" value={reason} onChange={event => { setReason(event.target.value); if (event.target.value.trim()) setReasonError(''); }} placeholder="Explain why this deck cannot be approved for sharing..." rows={3} aria-invalid={Boolean(reasonError)} aria-describedby={reasonError ? 'share-rejection-error' : undefined} style={{ width: '100%', boxSizing: 'border-box', padding: 12, borderRadius: 8, border: `1px solid ${reasonError ? '#f43f5e' : 'var(--border-color)'}`, background: 'var(--bg-secondary)', color: 'var(--text-primary)' }} />{reasonError && <p id="share-rejection-error" role="alert" style={{ margin: '7px 0 0', color: '#fb7185', fontWeight: 700 }}>{reasonError}</p>}<div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 12 }}><button disabled={saving} onClick={() => decide('rejected')} style={{ padding: 13, borderRadius: 8, border: '1px solid #f43f5e', background: 'transparent', color: '#fb7185', fontWeight: 700, cursor: 'pointer' }}>Reject</button><button disabled={saving} onClick={() => decide('approved')} style={{ padding: 13, borderRadius: 8, border: 0, background: '#10b981', color: 'white', fontWeight: 700, cursor: 'pointer' }}>{saving ? 'Saving...' : 'Approve'}</button></div></> : <div style={{ marginTop: 18, padding: 14, borderRadius: 8, border: `1px solid ${colors[selected.status]}`, color: colors[selected.status] }}>Decision recorded{selected.rejection_message ? `: ${selected.rejection_message}` : '.'}</div>}
         </>}
       </section>
     </div>
