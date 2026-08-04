@@ -23,7 +23,7 @@ export default function SharedDeckRequests() {
 
   const load = async () => {
     setLoading(true); setError('');
-    const { data, error: loadError } = await supabase.from('shared_purchase_requests').select('*').order('created_at', { ascending: false });
+    const { data, error: loadError } = await supabase.from('shared_purchase_requests').select('*').eq('request_type', 'share_link').order('created_at', { ascending: false });
     if (loadError) setError(loadError.message); else {
       const next = data || []; setRequests(next);
       setSelectedId(current => next.some(item => item.id === current) ? current : next.find(item => item.status === 'pending')?.id || next[0]?.id || null);
@@ -59,8 +59,8 @@ export default function SharedDeckRequests() {
 
   if (loading) return <div className="loading">Loading shared-deck requests...</div>;
   return <div>
-    <h1 className="page-title">Shared Deck Moderation</h1>
-    <p style={{ color: 'var(--text-muted)', marginBottom: 22 }}>Review every uploaded card image before allowing another customer to use a shared deck.</p>
+    <h1 className="page-title">Share Link Moderation</h1>
+    <p style={{ color: 'var(--text-muted)', marginBottom: 22 }}>Review deck artwork before allowing its owner to publish a share link.</p>
     {error && <div style={{ border: '1px solid #ef4444', color: '#fecaca', background: 'rgba(239,68,68,.12)', borderRadius: 8, padding: 12, marginBottom: 16 }}>{error}</div>}
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,minmax(0,1fr))', gap: 12, marginBottom: 18 }}>
       {['pending', 'approved', 'rejected'].map(status => <button key={status} onClick={() => setFilter(status)} style={{ padding: 18, textAlign: 'left', borderRadius: 12, border: `1px solid ${filter === status ? colors[status] : 'var(--border-color)'}`, background: 'var(--bg-card)', color: 'var(--text-primary)', cursor: 'pointer' }}><small style={{ color: colors[status], textTransform: 'uppercase', fontWeight: 700 }}>{status}</small><div style={{ fontSize: 28, fontWeight: 800 }}>{counts[status] || 0}</div></button>)}
