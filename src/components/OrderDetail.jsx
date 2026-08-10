@@ -219,7 +219,11 @@ const OrderDetail = ({ order, onClose, onOrderUpdated }) => {
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status} ${response.statusText}`.trim());
             }
-            return await response.blob();
+            const blob = await response.blob();
+            if (blob.size === 0) {
+                throw new Error('Storage returned an empty image file');
+            }
+            return blob;
         } catch (error) {
             if (attempt >= 3) {
                 throw new Error(`Failed to fetch ${label} after ${attempt} attempts: ${error.message}`);
