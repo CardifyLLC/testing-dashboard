@@ -129,6 +129,17 @@ export const createOrderPdfDownloadUrl = async (storagePath) => {
     return data.signedUrl;
 };
 
+/** Returns automatic PDF states for the visible order rows in one request. */
+export const fetchOrderPdfGenerations = async (orderIds) => {
+    if (!orderIds.length) return [];
+    const { data, error } = await ordersClient
+        .from('order_pdf_generations')
+        .select('order_id, status, error_message, total_cards, processed_cards, total_parts, completed_parts')
+        .in('order_id', orderIds);
+    if (error) throw error;
+    return data || [];
+};
+
 /** Creates short-lived private URLs for all parts of a generated order PDF. */
 export const createOrderPdfDownloadUrls = async (storagePaths) => {
     const { data, error } = await supabase.storage
