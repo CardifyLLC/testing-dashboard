@@ -9,3 +9,6 @@ verify_jwt = false
 
 [functions.export-all-emails]
 verify_jwt = false
+
+[functions.generate-order-pdf]
+verify_jwt = false
