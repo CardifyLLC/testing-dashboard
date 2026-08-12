@@ -475,11 +475,44 @@ const OrderDetail = ({ order, onClose, onOrderUpdated }) => {
                                 onClick={downloadGeneratedOrderPdf}
                                 disabled={isDownloadingOrderPdf}
                                 className="order-pdf-download-btn"
+                                style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '8px',
+                                    minHeight: '38px',
+                                    padding: '5px 14px 5px 6px',
+                                    border: '1px solid rgba(96, 165, 250, 0.55)',
+                                    borderRadius: '999px',
+                                    background: 'linear-gradient(135deg, #2563eb 0%, #4f46e5 100%)',
+                                    color: '#fff',
+                                    fontSize: '0.82rem',
+                                    fontWeight: 700,
+                                    whiteSpace: 'nowrap',
+                                    cursor: isDownloadingOrderPdf ? 'wait' : 'pointer',
+                                    boxShadow: '0 6px 18px rgba(37, 99, 235, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.18)',
+                                    opacity: isDownloadingOrderPdf ? 0.65 : 1,
+                                }}
                                 title="Download this order's automatically generated PDF"
                             >
                                 {isDownloadingOrderPdf
                                     ? <Loader2 className="w-4 h-4 animate-spin" />
-                                    : <span className="order-pdf-download-icon"><Download className="w-4 h-4" /></span>}
+                                    : (
+                                        <span
+                                            className="order-pdf-download-icon"
+                                            style={{
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                width: '28px',
+                                                height: '28px',
+                                                borderRadius: '50%',
+                                                background: 'rgba(255, 255, 255, 0.16)',
+                                                flexShrink: 0,
+                                            }}
+                                        >
+                                            <Download className="w-4 h-4" />
+                                        </span>
+                                    )}
                                 {isDownloadingOrderPdf ? 'Downloading...' : 'Download PDF'}
                             </button>
                         )}
