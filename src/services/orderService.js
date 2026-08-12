@@ -140,6 +140,29 @@ export const createOrderPdfDownloadUrls = async (storagePaths) => {
     return urls;
 };
 
+// Backward-compatible exports for deployments that still contain the previous
+// Dashboard bundle. The current Dashboard no longer renders the bulk button.
+export const fetchNewOrderPdfs = async () => {
+    const { data, error } = await ordersClient
+        .from('order_pdf_generations')
+        .select('order_id, storage_path, completed_at')
+        .eq('status', 'completed')
+        .is('downloaded_at', null)
+        .not('storage_path', 'is', null)
+        .order('completed_at', { ascending: true });
+    if (error) throw error;
+    return data || [];
+};
+
+export const markOrderPdfsDownloaded = async (orderIds) => {
+    if (!orderIds.length) return;
+    const { error } = await ordersClient
+        .from('order_pdf_generations')
+        .update({ downloaded_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+        .in('order_id', orderIds);
+    if (error) throw error;
+};
+
 /**
  * Fetches all orders matching current filters (no pagination) — used for Excel export.
  * @param {string} searchTerm
