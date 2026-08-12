@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { parseAddress, getOrderImageUrl, updateOrderCardData, updateOrderStatus, hasUploadedXml, downloadUploadedXml, rejectAndRefundOrder, fetchOrderPdfGeneration, createOrderPdfDownloadUrl } from '../services/orderService';
+import { parseAddress, getOrderImageUrl, updateOrderCardData, updateOrderStatus, hasUploadedXml, downloadUploadedXml, rejectAndRefundOrder, fetchOrderPdfGeneration, createOrderPdfDownloadUrl, createOrderPdfDownloadUrls } from '../services/orderService';
 import { ORDER_REJECTION_TEMPLATES, getRejectionTemplate } from '../constants/rejectionTemplates';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
@@ -26,10 +26,16 @@ const OrderDetail = ({ order, onClose, onOrderUpdated }) => {
 
     useEffect(() => {
         let active = true;
+        let pollTimer;
         const loadOrderPdf = async () => {
             try {
                 const generation = await fetchOrderPdfGeneration(order.id);
-                if (active) setOrderPdf(generation);
+                if (active) {
+                    setOrderPdf(generation);
+                    if (generation?.status === 'processing') {
+                        pollTimer = window.setTimeout(loadOrderPdf, 3000);
+                    }
+                }
             } catch (error) {
                 console.error('Could not load generated PDF status:', error);
             } finally {
@@ -37,7 +43,10 @@ const OrderDetail = ({ order, onClose, onOrderUpdated }) => {
             }
         };
         loadOrderPdf();
-        return () => { active = false; };
+        return () => {
+            active = false;
+            if (pollTimer) window.clearTimeout(pollTimer);
+        };
     }, [order.id]);
 
     const shippingAddress = parseAddress(order.shipping_address);
@@ -359,7 +368,21 @@ const OrderDetail = ({ order, onClose, onOrderUpdated }) => {
         if (!orderPdf?.storage_path || orderPdf.status !== 'completed') return;
         setIsDownloadingOrderPdf(true);
         try {
-            const signedUrl = await createOrderPdfDownloadUrl(orderPdf.storage_path);
+            const storagePaths = Array.isArray(orderPdf.storage_paths) && orderPdf.storage_paths.length
+                ? orderPdf.storage_paths
+                : [orderPdf.storage_path];
+            if (storagePaths.length > 1) {
+                const signedUrls = await createOrderPdfDownloadUrls(storagePaths);
+                const zip = new JSZip();
+                for (let index = 0; index < signedUrls.length; index += 1) {
+                    const response = await fetch(signedUrls[index]);
+                    if (!response.ok) throw new Error(`Could not download PDF part ${index + 1}.`);
+                    zip.file(`order-${orderId}-part-${String(index + 1).padStart(3, '0')}.pdf`, await response.blob());
+                }
+                saveAs(await zip.generateAsync({ type: 'blob' }), `order-${orderId}-pdfs.zip`);
+                return;
+            }
+            const signedUrl = await createOrderPdfDownloadUrl(storagePaths[0]);
             const link = document.createElement('a');
             link.href = signedUrl;
             link.download = `order-${orderId}.pdf`;
@@ -451,18 +474,20 @@ const OrderDetail = ({ order, onClose, onOrderUpdated }) => {
                                 type="button"
                                 onClick={downloadGeneratedOrderPdf}
                                 disabled={isDownloadingOrderPdf}
-                                className="flex items-center gap-2 px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold text-sm transition-colors disabled:opacity-60"
+                                className="order-pdf-download-btn"
                                 title="Download this order's automatically generated PDF"
                             >
                                 {isDownloadingOrderPdf
                                     ? <Loader2 className="w-4 h-4 animate-spin" />
-                                    : <Download className="w-4 h-4" />}
+                                    : <span className="order-pdf-download-icon"><Download className="w-4 h-4" /></span>}
                                 {isDownloadingOrderPdf ? 'Downloading...' : 'Download PDF'}
                             </button>
                         )}
                         {!isLoadingOrderPdf && orderPdf?.status === 'processing' && (
                             <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem', whiteSpace: 'nowrap' }}>
-                                PDF processing…
+                                PDF processing{orderPdf.total_cards > 0
+                                    ? `… ${orderPdf.processed_cards}/${orderPdf.total_cards}`
+                                    : '…'}
                             </span>
                         )}
                         {!isLoadingOrderPdf && orderPdf?.status === 'failed' && (
