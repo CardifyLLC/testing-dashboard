@@ -372,18 +372,23 @@ const OrderDetail = ({ order, onClose, onOrderUpdated }) => {
                 ? orderPdf.storage_paths
                 : [orderPdf.storage_path];
             if (storagePaths.length > 1) {
+                const { PDFDocument } = await import('pdf-lib');
                 const signedUrls = await createOrderPdfDownloadUrls(storagePaths);
-                for (let index = 0; index < signedUrls.length; index += 1) {
-                    const link = document.createElement('a');
-                    link.href = signedUrls[index];
-                    link.download = `order-${orderId}-part-${index + 1}.pdf`;
-                    document.body.appendChild(link);
-                    link.click();
-                    document.body.removeChild(link);
-                    // Match BatcherPRO's staggered multi-file downloads and avoid
-                    // browsers dropping simultaneous download requests.
-                    if (index < signedUrls.length - 1) await sleep(1200);
+                const mergedPdf = await PDFDocument.create();
+                // Parts are stored in print order. Copy every front/back page
+                // into one document so the result matches Batcher PRO's
+                // single-file export while generation remains resumable.
+                for (const signedUrl of signedUrls) {
+                    const response = await fetch(signedUrl);
+                    if (!response.ok) {
+                        throw new Error(`Could not download a PDF part (HTTP ${response.status}).`);
+                    }
+                    const partPdf = await PDFDocument.load(await response.arrayBuffer());
+                    const pages = await mergedPdf.copyPages(partPdf, partPdf.getPageIndices());
+                    pages.forEach(page => mergedPdf.addPage(page));
                 }
+                const mergedBytes = await mergedPdf.save();
+                saveAs(new Blob([mergedBytes], { type: 'application/pdf' }), `order-${orderId}.pdf`);
                 return;
             }
             const signedUrl = await createOrderPdfDownloadUrl(storagePaths[0]);
