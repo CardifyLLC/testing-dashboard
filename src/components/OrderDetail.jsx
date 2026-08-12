@@ -373,13 +373,17 @@ const OrderDetail = ({ order, onClose, onOrderUpdated }) => {
                 : [orderPdf.storage_path];
             if (storagePaths.length > 1) {
                 const signedUrls = await createOrderPdfDownloadUrls(storagePaths);
-                const zip = new JSZip();
                 for (let index = 0; index < signedUrls.length; index += 1) {
-                    const response = await fetch(signedUrls[index]);
-                    if (!response.ok) throw new Error(`Could not download PDF part ${index + 1}.`);
-                    zip.file(`order-${orderId}-part-${String(index + 1).padStart(3, '0')}.pdf`, await response.blob());
+                    const link = document.createElement('a');
+                    link.href = signedUrls[index];
+                    link.download = `order-${orderId}-part-${index + 1}.pdf`;
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    // Match BatcherPRO's staggered multi-file downloads and avoid
+                    // browsers dropping simultaneous download requests.
+                    if (index < signedUrls.length - 1) await sleep(1200);
                 }
-                saveAs(await zip.generateAsync({ type: 'blob' }), `order-${orderId}-pdfs.zip`);
                 return;
             }
             const signedUrl = await createOrderPdfDownloadUrl(storagePaths[0]);
