@@ -97,7 +97,7 @@ export const fetchAffiliateOrders = async () => {
 export const fetchPaidOrdersForBatcher = async () => {
     const { data, error } = await ordersClient
         .from('orders')
-        .select('id, customer_name, status, created_at, card_images, card_data')
+        .select('id, customer_name, status, created_at, card_images, card_data, metadata')
         .in('status', ['paid', 'PAID'])
         .order('created_at', { ascending: false });
 
@@ -105,7 +105,33 @@ export const fetchPaidOrdersForBatcher = async () => {
         console.error('Error fetching paid orders:', error);
         throw error;
     }
+    return (data || []).filter(order => order.metadata?.productType !== 'cardstock');
+};
+
+/**
+ * Returns worker-generated PDFs that have not been downloaded from the dashboard.
+ */
+export const fetchNewOrderPdfs = async () => {
+    const { data, error } = await ordersClient
+        .from('order_pdf_generations')
+        .select('order_id, storage_path, completed_at')
+        .eq('status', 'completed')
+        .is('downloaded_at', null)
+        .not('storage_path', 'is', null)
+        .order('completed_at', { ascending: true });
+
+    if (error) throw error;
     return data || [];
+};
+
+/** Marks successfully downloaded worker PDFs so the next bulk download is new-only. */
+export const markOrderPdfsDownloaded = async (orderIds) => {
+    if (!orderIds.length) return;
+    const { error } = await ordersClient
+        .from('order_pdf_generations')
+        .update({ downloaded_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+        .in('order_id', orderIds);
+    if (error) throw error;
 };
 
 /**
@@ -398,9 +424,14 @@ export const updateOrderStatus = async (orderId, status) => {
         throw new Error(`Unsupported order status: ${status}`);
     }
 
+    const changes = {
+        status,
+        ...(status === 'completed' ? { completed_at: new Date().toISOString() } : {}),
+    };
+
     const { data, error } = await ordersClient
         .from('orders')
-        .update({ status })
+        .update(changes)
         .eq('id', orderId)
         .select()
         .single();
