@@ -134,6 +134,27 @@ export const markOrderPdfsDownloaded = async (orderIds) => {
     if (error) throw error;
 };
 
+/** Returns the current automatic PDF state for one order. */
+export const fetchOrderPdfGeneration = async (orderId) => {
+    const { data, error } = await ordersClient
+        .from('order_pdf_generations')
+        .select('order_id, status, storage_path, error_message, completed_at')
+        .eq('order_id', orderId)
+        .maybeSingle();
+    if (error) throw error;
+    return data;
+};
+
+/** Creates a short-lived private download URL for one completed order PDF. */
+export const createOrderPdfDownloadUrl = async (storagePath) => {
+    const { data, error } = await supabase.storage
+        .from('order-pdfs')
+        .createSignedUrl(storagePath, 10 * 60, { download: true });
+    if (error) throw error;
+    if (!data?.signedUrl) throw new Error('Could not create the PDF download link.');
+    return data.signedUrl;
+};
+
 /**
  * Fetches all orders matching current filters (no pagination) — used for Excel export.
  * @param {string} searchTerm
