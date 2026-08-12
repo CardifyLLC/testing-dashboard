@@ -108,37 +108,11 @@ export const fetchPaidOrdersForBatcher = async () => {
     return (data || []).filter(order => order.metadata?.productType !== 'cardstock');
 };
 
-/**
- * Returns worker-generated PDFs that have not been downloaded from the dashboard.
- */
-export const fetchNewOrderPdfs = async () => {
-    const { data, error } = await ordersClient
-        .from('order_pdf_generations')
-        .select('order_id, storage_path, completed_at')
-        .eq('status', 'completed')
-        .is('downloaded_at', null)
-        .not('storage_path', 'is', null)
-        .order('completed_at', { ascending: true });
-
-    if (error) throw error;
-    return data || [];
-};
-
-/** Marks successfully downloaded worker PDFs so the next bulk download is new-only. */
-export const markOrderPdfsDownloaded = async (orderIds) => {
-    if (!orderIds.length) return;
-    const { error } = await ordersClient
-        .from('order_pdf_generations')
-        .update({ downloaded_at: new Date().toISOString(), updated_at: new Date().toISOString() })
-        .in('order_id', orderIds);
-    if (error) throw error;
-};
-
 /** Returns the current automatic PDF state for one order. */
 export const fetchOrderPdfGeneration = async (orderId) => {
     const { data, error } = await ordersClient
         .from('order_pdf_generations')
-        .select('order_id, status, storage_path, error_message, completed_at')
+        .select('order_id, status, storage_path, storage_paths, error_message, completed_at, total_cards, processed_cards, total_parts, completed_parts')
         .eq('order_id', orderId)
         .maybeSingle();
     if (error) throw error;
@@ -153,6 +127,17 @@ export const createOrderPdfDownloadUrl = async (storagePath) => {
     if (error) throw error;
     if (!data?.signedUrl) throw new Error('Could not create the PDF download link.');
     return data.signedUrl;
+};
+
+/** Creates short-lived private URLs for all parts of a generated order PDF. */
+export const createOrderPdfDownloadUrls = async (storagePaths) => {
+    const { data, error } = await supabase.storage
+        .from('order-pdfs')
+        .createSignedUrls(storagePaths, 10 * 60, { download: true });
+    if (error) throw error;
+    const urls = (data || []).map(item => item.signedUrl).filter(Boolean);
+    if (urls.length !== storagePaths.length) throw new Error('Could not create all PDF download links.');
+    return urls;
 };
 
 /**
