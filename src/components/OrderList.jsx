@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { hasUploadedXml, isXmlOrder } from '../services/orderService';
+import { fetchOrderPdfGenerations, hasUploadedXml, isXmlOrder } from '../services/orderService';
 
 const statusTabs = [
     { value: 'all', label: 'All' },
@@ -15,11 +15,38 @@ const OrderList = ({ orders, onSelectOrder, page, setPage, totalCount, pageSize,
     const [selectedIds, setSelectedIds] = useState(new Set());
     const [bulkUpdating, setBulkUpdating] = useState(false);
     const [updatingOrderId, setUpdatingOrderId] = useState(null);
+    const [pdfGenerations, setPdfGenerations] = useState({});
 
     // Clear selection whenever the visible orders change (page change, filter, search, etc.)
     useEffect(() => {
         setSelectedIds(new Set());
     }, [page, activeStatus, totalCount]);
+
+    useEffect(() => {
+        let active = true;
+        let timer;
+        const orderIds = orders.map(order => order.id);
+
+        const loadPdfStatuses = async () => {
+            try {
+                const generations = await fetchOrderPdfGenerations(orderIds);
+                if (!active) return;
+                setPdfGenerations(Object.fromEntries(generations.map(item => [item.order_id, item])));
+                if (generations.some(item => item.status === 'processing')) {
+                    timer = window.setTimeout(loadPdfStatuses, 3000);
+                }
+            } catch (error) {
+                console.error('Could not load PDF generation statuses:', error);
+            }
+        };
+
+        if (orderIds.length) loadPdfStatuses();
+        else setPdfGenerations({});
+        return () => {
+            active = false;
+            if (timer) window.clearTimeout(timer);
+        };
+    }, [orders]);
 
     const formatDate = (dateString) => {
         return new Date(dateString).toLocaleDateString('en-US', {
@@ -187,6 +214,7 @@ const OrderList = ({ orders, onSelectOrder, page, setPage, totalCount, pageSize,
                         <th>Status</th>
                         <th>Total</th>
                         <th>Items</th>
+                        <th>PDF</th>
                         <th>Action</th>
                     </tr>
                 </thead>
@@ -194,7 +222,9 @@ const OrderList = ({ orders, onSelectOrder, page, setPage, totalCount, pageSize,
                     {orders.map(order => {
                         const xmlOrder = isXmlOrder(order);
                         const hasXml = hasUploadedXml(order);
+                        const isCardstockOrder = order.metadata?.productType === 'cardstock';
                         const normalizedStatus = String(order.status || '').toLowerCase();
+                        const pdfGeneration = pdfGenerations[order.id];
                         const isSelected = selectedIds.has(order.id);
                         return (
                         <tr
@@ -219,7 +249,7 @@ const OrderList = ({ orders, onSelectOrder, page, setPage, totalCount, pageSize,
                             <td>
                                 <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
                                     <span className={`status-badge ${xmlOrder ? 'status-paid' : 'status-pending'}`}>
-                                        {xmlOrder ? 'XML' : 'Standard'}
+                                        {isCardstockOrder ? 'Cardstock' : (xmlOrder ? 'XML' : 'Standard')}
                                     </span>
                                     {hasXml && (
                                         <span className="status-badge" style={{ backgroundColor: '#dbeafe', color: '#1d4ed8' }}>
@@ -235,10 +265,32 @@ const OrderList = ({ orders, onSelectOrder, page, setPage, totalCount, pageSize,
                             </td>
                             <td>{formatCurrency(order.total_amount_cents)}</td>
                             <td>
-                                <div>{order.quantity} cards</div>
-                                <div style={{ fontSize: '0.8em', fontWeight: 600, color: 'var(--text-muted)' }}>
-                                    {order.deck_quantity || order.metadata?.deckQuantity || 1} {(order.deck_quantity || order.metadata?.deckQuantity || 1) === 1 ? 'deck' : 'decks'}
-                                </div>
+                                <div>{order.quantity} {isCardstockOrder ? (order.quantity === 1 ? 'sheet' : 'sheets') : 'cards'}</div>
+                                {!isCardstockOrder && (
+                                    <div style={{ fontSize: '0.8em', fontWeight: 600, color: 'var(--text-muted)' }}>
+                                        {order.deck_quantity || order.metadata?.deckQuantity || 1} {(order.deck_quantity || order.metadata?.deckQuantity || 1) === 1 ? 'deck' : 'decks'}
+                                    </div>
+                                )}
+                            </td>
+                            <td>
+                                {!pdfGeneration ? (
+                                    <span className="pdf-status-badge pdf-status-none">Not generated</span>
+                                ) : pdfGeneration.status === 'completed' ? (
+                                    <span className="pdf-status-badge pdf-status-ready" title={`${pdfGeneration.completed_parts || 1} PDF part(s) ready`}>
+                                        ✓ PDF ready
+                                    </span>
+                                ) : pdfGeneration.status === 'processing' ? (
+                                    <span className="pdf-status-badge pdf-status-processing">
+                                        <span className="pdf-status-dot" />
+                                        {pdfGeneration.total_cards > 0
+                                            ? `${pdfGeneration.processed_cards}/${pdfGeneration.total_cards}`
+                                            : 'Generating'}
+                                    </span>
+                                ) : (
+                                    <span className="pdf-status-badge pdf-status-failed" title={pdfGeneration.error_message || 'PDF generation failed'}>
+                                        ! PDF failed
+                                    </span>
+                                )}
                             </td>
                             <td onClick={e => e.stopPropagation()}>
                                 {normalizedStatus === 'completed' ? (
