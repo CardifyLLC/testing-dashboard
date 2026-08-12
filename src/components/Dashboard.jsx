@@ -1,8 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import * as XLSX from 'xlsx';
-import JSZip from 'jszip';
-import { saveAs } from 'file-saver';
-import { fetchOrders, fetchAllOrders, fetchOrderById, fetchOrdersForExport, fetchNewOrderPdfs, markOrderPdfsDownloaded, updateOrderStatus } from '../services/orderService';
+import { fetchOrders, fetchAllOrders, fetchOrderById, fetchOrdersForExport, updateOrderStatus } from '../services/orderService';
 import { supabase } from '../services/supabaseClient';
 import OrderList from './OrderList';
 import OrderDetail from './OrderDetail';
@@ -33,7 +31,6 @@ const Dashboard = () => {
     const [dateFrom, setDateFrom] = useState('');
     const [dateTo, setDateTo] = useState('');
     const [downloading, setDownloading] = useState(false);
-    const [downloadingOrderPdfs, setDownloadingOrderPdfs] = useState(false);
     const pageSize = 20;
     const [showUserMenu, setShowUserMenu] = useState(false);
     const [showChangePassword, setShowChangePassword] = useState(false);
@@ -129,56 +126,6 @@ const Dashboard = () => {
             console.error('Download failed', err);
         } finally {
             setDownloading(false);
-        }
-    };
-
-    const handleDownloadNewOrderPdfs = async () => {
-        setDownloadingOrderPdfs(true);
-        try {
-            const pdfs = await fetchNewOrderPdfs();
-            if (pdfs.length === 0) {
-                alert('There are no new generated order PDFs yet.');
-                return;
-            }
-
-            const paths = pdfs.map(pdf => pdf.storage_path);
-            const { data: signedFiles, error: signedUrlError } = await supabase.storage
-                .from('order-pdfs')
-                .createSignedUrls(paths, 10 * 60);
-            if (signedUrlError) throw signedUrlError;
-
-            const zip = new JSZip();
-            const downloadedIds = [];
-            const failures = [];
-            for (let index = 0; index < pdfs.length; index += 1) {
-                const signedUrl = signedFiles?.[index]?.signedUrl;
-                if (!signedUrl) {
-                    failures.push(pdfs[index].order_id);
-                    continue;
-                }
-                try {
-                    const response = await fetch(signedUrl);
-                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                    zip.file(`order-${pdfs[index].order_id.slice(0, 8)}.pdf`, await response.blob());
-                    downloadedIds.push(pdfs[index].order_id);
-                } catch (error) {
-                    console.error(`Could not download PDF for order ${pdfs[index].order_id}`, error);
-                    failures.push(pdfs[index].order_id);
-                }
-            }
-
-            if (downloadedIds.length === 0) throw new Error('None of the generated PDFs could be downloaded.');
-            const zipBlob = await zip.generateAsync({ type: 'blob' });
-            saveAs(zipBlob, `new-order-pdfs-${new Date().toISOString().slice(0, 10)}.zip`);
-            await markOrderPdfsDownloaded(downloadedIds);
-            if (failures.length) {
-                alert(`Downloaded ${downloadedIds.length} PDF(s). ${failures.length} failed and will remain in the new queue.`);
-            }
-        } catch (error) {
-            console.error('Order PDF download failed', error);
-            alert(`Could not download order PDFs: ${error.message || error}`);
-        } finally {
-            setDownloadingOrderPdfs(false);
         }
     };
 
@@ -443,25 +390,6 @@ const Dashboard = () => {
                                                             Clear
                                                         </button>
                                                     )}
-                                                    <button
-                                                        type="button"
-                                                        onClick={handleDownloadNewOrderPdfs}
-                                                        disabled={downloadingOrderPdfs}
-                                                        title="Download all completed worker PDFs not downloaded before"
-                                                        style={{
-                                                            padding: '6px 14px',
-                                                            background: downloadingOrderPdfs ? 'var(--bg-hover)' : '#2563eb',
-                                                            color: downloadingOrderPdfs ? 'var(--text-muted)' : '#fff',
-                                                            border: 'none',
-                                                            borderRadius: '8px',
-                                                            cursor: downloadingOrderPdfs ? 'not-allowed' : 'pointer',
-                                                            fontSize: '0.85rem',
-                                                            fontWeight: '600',
-                                                            whiteSpace: 'nowrap',
-                                                        }}
-                                                    >
-                                                        {downloadingOrderPdfs ? 'Preparing PDFs...' : '⬇ New Order PDFs'}
-                                                    </button>
                                                     <button
                                                         onClick={handleDownloadEmails}
                                                         disabled={downloading}
