@@ -721,10 +721,13 @@ const OrderDetail = ({ order, onClose, onOrderUpdated }) => {
                                             <button
                                                 onClick={downloadXmlFile}
                                                 type="button"
-                                                className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded hover:bg-emerald-700 font-semibold text-sm transition-all shadow-sm"
+                                                className="order-xml-download-btn"
+                                                title="Download the original XML order file"
                                             >
-                                                <Download className="w-4 h-4" />
-                                                Download XML
+                                                <span className="order-xml-download-icon">
+                                                    <Download className="w-4 h-4" />
+                                                </span>
+                                                <span>Download XML</span>
                                             </button>
                                         )}
                                         <button
