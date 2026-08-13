@@ -601,6 +601,51 @@ button {
   background: rgba(255, 255, 255, 0.16);
 }
 
+.order-xml-download-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-height: 38px;
+  padding: 0.4rem 0.9rem 0.4rem 0.45rem;
+  border: 1px solid rgba(52, 211, 153, 0.5);
+  border-radius: 999px;
+  background: linear-gradient(135deg, #059669 0%, #0d9488 100%);
+  color: #ffffff;
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow: 0 6px 18px rgba(5, 150, 105, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, filter 0.15s ease;
+}
+
+.order-xml-download-btn:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.08);
+  box-shadow: 0 9px 24px rgba(5, 150, 105, 0.34), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+.order-xml-download-btn:active {
+  transform: translateY(0);
+}
+
+.order-xml-download-btn:focus-visible {
+  outline: 3px solid rgba(52, 211, 153, 0.3);
+  outline-offset: 2px;
+}
+
+.order-xml-download-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.16);
+}
+
 .pdf-status-badge {
   display: inline-flex;
   align-items: center;
