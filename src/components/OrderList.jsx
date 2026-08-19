@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { fetchOrderPdfGenerations, hasUploadedXml, isXmlOrder } from '../services/orderService';
+import { awardCashPurchaseReward, fetchOrderPdfGenerations, hasUploadedXml, isXmlOrder } from '../services/orderService';
 
 const statusTabs = [
     { value: 'all', label: 'All' },
@@ -15,6 +15,8 @@ const OrderList = ({ orders, onSelectOrder, page, setPage, totalCount, pageSize,
     const [selectedIds, setSelectedIds] = useState(new Set());
     const [bulkUpdating, setBulkUpdating] = useState(false);
     const [updatingOrderId, setUpdatingOrderId] = useState(null);
+    const [rewardingOrderId, setRewardingOrderId] = useState(null);
+    const [rewardMessages, setRewardMessages] = useState({});
     const [pdfGenerations, setPdfGenerations] = useState({});
 
     // Clear selection whenever the visible orders change (page change, filter, search, etc.)
@@ -112,6 +114,28 @@ const OrderList = ({ orders, onSelectOrder, page, setPage, totalCount, pageSize,
             await onBulkStatusChange([orderId], 'paid');
         } finally {
             setUpdatingOrderId(null);
+        }
+    };
+
+    const handleGrantCashReward = async (event, order) => {
+        event.stopPropagation();
+        if (!window.confirm(`Grant the 5% cash-purchase PRINTS reward for order #${order.id.slice(0, 8)}?`)) return;
+        setRewardingOrderId(order.id);
+        setRewardMessages(current => ({ ...current, [order.id]: null }));
+        try {
+            const result = await awardCashPurchaseReward(order.id);
+            const message = result.awarded
+                ? `Granted ${Number(result.prints || 0).toLocaleString()} PRINTS`
+                : result.reason === 'already_awarded' ? 'Already granted'
+                    : result.reason === 'reward_below_one_print' ? 'Below 1 PRINT'
+                        : result.reason === 'signed_in_user_required' ? 'Guest order - no wallet'
+                            : result.reason === 'order_not_paid' ? 'Order is not paid'
+                                : `Not granted: ${String(result.reason || 'unknown reason').replaceAll('_', ' ')}`;
+            setRewardMessages(current => ({ ...current, [order.id]: { ok: Boolean(result.awarded), text: message } }));
+        } catch (error) {
+            setRewardMessages(current => ({ ...current, [order.id]: { ok: false, text: error.message || 'Reward failed' } }));
+        } finally {
+            setRewardingOrderId(null);
         }
     };
 
@@ -293,6 +317,30 @@ const OrderList = ({ orders, onSelectOrder, page, setPage, totalCount, pageSize,
                                 )}
                             </td>
                             <td onClick={e => e.stopPropagation()}>
+                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '6px' }}>
+                                <button
+                                    type="button"
+                                    onClick={(event) => handleGrantCashReward(event, order)}
+                                    disabled={rewardingOrderId === order.id}
+                                    style={{
+                                        padding: '6px 12px',
+                                        background: rewardingOrderId === order.id ? 'var(--bg-hover)' : '#2563eb',
+                                        color: rewardingOrderId === order.id ? 'var(--text-muted)' : '#fff',
+                                        border: 'none', borderRadius: '8px',
+                                        cursor: rewardingOrderId === order.id ? 'not-allowed' : 'pointer',
+                                        fontWeight: 600, fontSize: '0.8rem', whiteSpace: 'nowrap',
+                                    }}
+                                >
+                                    {rewardingOrderId === order.id ? 'Granting...' : 'Grant 5%'}
+                                </button>
+                                {rewardMessages[order.id] && (
+                                    <span style={{
+                                        maxWidth: '150px', fontSize: '0.72rem', lineHeight: 1.25,
+                                        color: rewardMessages[order.id].ok ? '#10b981' : '#f59e0b',
+                                    }}>
+                                        {rewardMessages[order.id].text}
+                                    </span>
+                                )}
                                 {normalizedStatus === 'completed' ? (
                                     <button
                                         type="button"
@@ -313,8 +361,9 @@ const OrderList = ({ orders, onSelectOrder, page, setPage, totalCount, pageSize,
                                         {updatingOrderId === order.id ? 'Updating...' : 'Mark Incomplete'}
                                     </button>
                                 ) : (
-                                    <span style={{ color: 'var(--text-muted)' }}>-</span>
+                                    null
                                 )}
+                                </div>
                             </td>
                         </tr>
                     )})}
