@@ -2,6 +2,18 @@ import { supabase, supabaseAdmin, getAdminAuthHeaders } from './supabaseClient';
 
 const ordersClient = supabaseAdmin;
 
+export const awardCashPurchaseReward = async (orderId) => {
+    const headers = await getAdminAuthHeaders();
+    const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/award-cash-reward`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderId }),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error || `Cash reward failed with HTTP ${response.status}.`);
+    return result;
+};
+
 export const ORDER_STATUSES = ['pending', 'paid', 'processing', 'shipped', 'completed', 'cancelled'];
 
 /**
