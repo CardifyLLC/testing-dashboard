@@ -119,7 +119,7 @@ const OrderList = ({ orders, onSelectOrder, page, setPage, totalCount, pageSize,
 
     const handleGrantCashReward = async (event, order) => {
         event.stopPropagation();
-        if (!window.confirm(`Grant the 5% cash-purchase PRINTS reward for order #${order.id.slice(0, 8)}?`)) return;
+        if (!window.confirm(`Grant another 5% cash-purchase PRINTS reward for order #${order.id.slice(0, 8)}? Every confirmed click adds a new wallet credit.`)) return;
         setRewardingOrderId(order.id);
         setRewardMessages(current => ({ ...current, [order.id]: null }));
         try {
