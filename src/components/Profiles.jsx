@@ -140,7 +140,12 @@ const Profiles = () => {
       setBulkGrantStatus({
         loading: false,
         error: '',
-        success: `Granted ${amount.toLocaleString()} PRINTS to ${Number(result.grantedCount || 0).toLocaleString()} users.`,
+        success: [
+          `Granted ${amount.toLocaleString()} PRINTS to ${Number(result.grantedCount || 0).toLocaleString()} users.`,
+          `Emails sent: ${Number(result.emailsSent || 0).toLocaleString()}.`,
+          result.emailsFailed ? `Emails failed: ${Number(result.emailsFailed).toLocaleString()}.` : '',
+          result.emailWarning || '',
+        ].filter(Boolean).join(' '),
       });
       setBulkGrant({ amount: '', note: '' });
     } catch (err) {
