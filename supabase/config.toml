@@ -10,6 +10,9 @@ verify_jwt = false
 [functions.award-cash-reward]
 verify_jwt = false
 
+[functions.grant-prints-all]
+verify_jwt = false
+
 [functions.export-all-emails]
 verify_jwt = false
 
