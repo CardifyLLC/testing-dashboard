@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { supabaseAdmin } from '../services/supabaseClient';
+import { getAdminAuthHeaders, supabaseAdmin } from '../services/supabaseClient';
 
 const formatCurrency = (cents) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format((cents || 0) / 100);
@@ -29,6 +29,8 @@ const avatarColor = (str) => {
   for (let i = 0; i < s.length; i++) hash = s.charCodeAt(i) + ((hash << 5) - hash);
   return avatarColors[Math.abs(hash) % avatarColors.length];
 };
+
+const escapeCsvCell = (value) => `"${String(value ?? '').replace(/"/g, '""')}"`;
 
 const AvatarCircle = ({ avatarUrl, initials, color }) => {
   const [imgFailed, setImgFailed] = React.useState(false);
@@ -62,6 +64,9 @@ const Profiles = () => {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [exporting, setExporting] = useState(false);
+  const [bulkGrant, setBulkGrant] = useState({ amount: '', note: '' });
+  const [bulkGrantStatus, setBulkGrantStatus] = useState({ loading: false, error: '', success: '' });
 
   // Filters
   const [search, setSearch] = useState('');
@@ -70,6 +75,78 @@ const Profiles = () => {
 
   // Expanded profile
   const [expandedId, setExpandedId] = useState(null);
+
+  const downloadAllEmails = async () => {
+    setExporting(true);
+    setError(null);
+
+    try {
+      const pageSize = 1000;
+      const allProfiles = [];
+
+      for (let from = 0; ; from += pageSize) {
+        const { data, error: exportError } = await supabaseAdmin
+          .from('profiles')
+          .select('email')
+          .order('created_at', { ascending: false })
+          .range(from, from + pageSize - 1);
+
+        if (exportError) throw exportError;
+        allProfiles.push(...(data || []));
+        if (!data || data.length < pageSize) break;
+      }
+
+      const emails = allProfiles
+        .map((profile) => profile.email?.trim())
+        .filter(Boolean);
+      const csv = ['Email', ...emails].map(escapeCsvCell).join('\r\n');
+      const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `profile-emails-${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(err.message || 'Failed to download profile emails');
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const grantPrintsToAll = async () => {
+    const amount = Number(bulkGrant.amount);
+    if (!Number.isSafeInteger(amount) || amount <= 0 || amount > 1000000) {
+      setBulkGrantStatus({ loading: false, error: 'Enter a whole PRINTS amount between 1 and 1,000,000.', success: '' });
+      return;
+    }
+    const confirmed = window.confirm(
+      `Grant ${amount.toLocaleString()} PRINTS to EVERY user account? This will add a separate wallet credit to all users and cannot be undone from this screen.`
+    );
+    if (!confirmed) return;
+
+    setBulkGrantStatus({ loading: true, error: '', success: '' });
+    try {
+      const headers = await getAdminAuthHeaders();
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/grant-prints-all`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amount, note: bulkGrant.note.trim() }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || `Bulk grant failed with HTTP ${response.status}.`);
+      setBulkGrantStatus({
+        loading: false,
+        error: '',
+        success: `Granted ${amount.toLocaleString()} PRINTS to ${Number(result.grantedCount || 0).toLocaleString()} users.`,
+      });
+      setBulkGrant({ amount: '', note: '' });
+    } catch (err) {
+      setBulkGrantStatus({ loading: false, error: err.message || 'Could not grant PRINTS to all users.', success: '' });
+    }
+  };
 
   useEffect(() => {
     const load = async () => {
@@ -124,7 +201,81 @@ const Profiles = () => {
 
   return (
     <div>
-      <h1 className="page-title">Profiles</h1>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px', marginBottom: '30px' }}>
+        <h1 className="page-title" style={{ marginBottom: 0 }}>Profiles</h1>
+        <button
+          type="button"
+          onClick={downloadAllEmails}
+          disabled={exporting}
+          style={{
+            padding: '9px 16px',
+            borderRadius: '8px',
+            border: '1px solid var(--accent-primary)',
+            background: 'var(--accent-primary)',
+            color: '#fff',
+            fontSize: '0.875rem',
+            fontWeight: '600',
+            cursor: exporting ? 'wait' : 'pointer',
+            opacity: exporting ? 0.65 : 1,
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {exporting ? 'Downloading...' : 'Download all'}
+        </button>
+      </div>
+
+      <div style={{
+        marginBottom: '24px', padding: '18px', borderRadius: '12px',
+        border: '1px solid #f59e0b', background: 'rgba(245, 158, 11, 0.08)',
+      }}>
+        <div style={{ marginBottom: '12px' }}>
+          <div style={{ color: 'var(--text-primary)', fontWeight: 700 }}>Grant PRINTS to all users</div>
+          <div style={{ marginTop: '4px', color: 'var(--text-muted)', fontSize: '0.8rem' }}>
+            Adds the same wallet credit to every active user profile. Each grant is recorded in the PRINTS ledger.
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+          <input
+            type="number"
+            min="1"
+            step="1"
+            max="1000000"
+            value={bulkGrant.amount}
+            onChange={(event) => setBulkGrant(current => ({ ...current, amount: event.target.value }))}
+            placeholder="PRINTS per user"
+            style={{
+              width: '170px', padding: '9px 12px', borderRadius: '8px',
+              border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-primary)',
+            }}
+          />
+          <input
+            type="text"
+            maxLength={500}
+            value={bulkGrant.note}
+            onChange={(event) => setBulkGrant(current => ({ ...current, note: event.target.value }))}
+            placeholder="Reason or note (optional)"
+            style={{
+              flex: '1 1 260px', padding: '9px 12px', borderRadius: '8px',
+              border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-primary)',
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => void grantPrintsToAll()}
+            disabled={bulkGrantStatus.loading}
+            style={{
+              padding: '9px 16px', borderRadius: '8px', border: 0,
+              background: bulkGrantStatus.loading ? 'var(--bg-hover)' : '#f59e0b',
+              color: bulkGrantStatus.loading ? 'var(--text-muted)' : '#111827',
+              fontWeight: 700, cursor: bulkGrantStatus.loading ? 'wait' : 'pointer', whiteSpace: 'nowrap',
+            }}
+          >
+            {bulkGrantStatus.loading ? 'Granting...' : 'Grant to all users'}
+          </button>
+        </div>
+        {bulkGrantStatus.error && <div style={{ marginTop: '10px', color: '#ef4444', fontSize: '0.82rem' }}>{bulkGrantStatus.error}</div>}
+        {bulkGrantStatus.success && <div style={{ marginTop: '10px', color: '#10b981', fontSize: '0.82rem', fontWeight: 600 }}>{bulkGrantStatus.success}</div>}
+      </div>
 
       {/* Filters */}
       <div style={{ display: 'flex', gap: '12px', marginBottom: '24px', flexWrap: 'wrap', alignItems: 'center' }}>
