@@ -67,6 +67,8 @@ const Profiles = () => {
   const [exporting, setExporting] = useState(false);
   const [bulkGrant, setBulkGrant] = useState({ amount: '', note: '' });
   const [bulkGrantStatus, setBulkGrantStatus] = useState({ loading: false, error: '', success: '' });
+  const [newUserGrant, setNewUserGrant] = useState({ amount: '', note: '' });
+  const [newUserGrantStatus, setNewUserGrantStatus] = useState({ loading: false, error: '', success: '' });
 
   // Filters
   const [search, setSearch] = useState('');
@@ -150,6 +152,36 @@ const Profiles = () => {
       setBulkGrant({ amount: '', note: '' });
     } catch (err) {
       setBulkGrantStatus({ loading: false, error: err.message || 'Could not grant PRINTS to all users.', success: '' });
+    }
+  };
+
+  const grantPrintsToNewUsers = async () => {
+    const amount = Number(newUserGrant.amount);
+    if (!Number.isSafeInteger(amount) || amount <= 0 || amount > 1000000) {
+      setNewUserGrantStatus({ loading: false, error: 'Enter a whole PRINTS amount between 1 and 1,000,000.', success: '' });
+      return;
+    }
+    if (!window.confirm(`Grant ${amount.toLocaleString()} PRINTS only to accounts that have never received the new-user grant? Previously marked accounts will be skipped.`)) return;
+    setNewUserGrantStatus({ loading: true, error: '', success: '' });
+    try {
+      const headers = await getAdminAuthHeaders();
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/grant-prints-new-users`, {
+        method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amount, note: newUserGrant.note.trim() }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || `New-user grant failed with HTTP ${response.status}.`);
+      setNewUserGrantStatus({ loading: false, error: '', success: [
+        result.grantedCount
+          ? `Granted ${amount.toLocaleString()} PRINTS to ${Number(result.grantedCount).toLocaleString()} new users.`
+          : 'No newly eligible users were found.',
+        `Emails sent: ${Number(result.emailsSent || 0).toLocaleString()}.`,
+        result.emailsFailed ? `Emails failed: ${Number(result.emailsFailed).toLocaleString()}.` : '',
+        result.emailWarning || '',
+      ].filter(Boolean).join(' ') });
+      setNewUserGrant({ amount: '', note: '' });
+    } catch (err) {
+      setNewUserGrantStatus({ loading: false, error: err.message || 'Could not grant PRINTS to new users.', success: '' });
     }
   };
 
@@ -280,6 +312,34 @@ const Profiles = () => {
         </div>
         {bulkGrantStatus.error && <div style={{ marginTop: '10px', color: '#ef4444', fontSize: '0.82rem' }}>{bulkGrantStatus.error}</div>}
         {bulkGrantStatus.success && <div style={{ marginTop: '10px', color: '#10b981', fontSize: '0.82rem', fontWeight: 600 }}>{bulkGrantStatus.success}</div>}
+      </div>
+
+      <div style={{
+        marginBottom: '24px', padding: '18px', borderRadius: '12px',
+        border: '1px solid #3b82f6', background: 'rgba(59, 130, 246, 0.08)',
+      }}>
+        <div style={{ marginBottom: '12px' }}>
+          <div style={{ color: 'var(--text-primary)', fontWeight: 700 }}>Grant PRINTS to new users only</div>
+          <div style={{ marginTop: '4px', color: 'var(--text-muted)', fontSize: '0.8rem' }}>
+            Credits only accounts that have never received this new-user grant. Previous recipients are automatically skipped.
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+          <input type="number" min="1" step="1" max="1000000" value={newUserGrant.amount}
+            onChange={(event) => setNewUserGrant(current => ({ ...current, amount: event.target.value }))}
+            placeholder="PRINTS per new user"
+            style={{ width: '190px', padding: '9px 12px', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-primary)' }} />
+          <input type="text" maxLength={500} value={newUserGrant.note}
+            onChange={(event) => setNewUserGrant(current => ({ ...current, note: event.target.value }))}
+            placeholder="Welcome note (optional)"
+            style={{ flex: '1 1 260px', padding: '9px 12px', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-primary)' }} />
+          <button type="button" onClick={() => void grantPrintsToNewUsers()} disabled={newUserGrantStatus.loading}
+            style={{ padding: '9px 16px', borderRadius: '8px', border: 0, background: newUserGrantStatus.loading ? 'var(--bg-hover)' : '#3b82f6', color: newUserGrantStatus.loading ? 'var(--text-muted)' : '#fff', fontWeight: 700, cursor: newUserGrantStatus.loading ? 'wait' : 'pointer', whiteSpace: 'nowrap' }}>
+            {newUserGrantStatus.loading ? 'Granting...' : 'Grant to new users'}
+          </button>
+        </div>
+        {newUserGrantStatus.error && <div style={{ marginTop: '10px', color: '#ef4444', fontSize: '0.82rem' }}>{newUserGrantStatus.error}</div>}
+        {newUserGrantStatus.success && <div style={{ marginTop: '10px', color: '#10b981', fontSize: '0.82rem', fontWeight: 600 }}>{newUserGrantStatus.success}</div>}
       </div>
 
       {/* Filters */}
