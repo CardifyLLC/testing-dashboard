@@ -69,6 +69,17 @@ const Profiles = () => {
   const [bulkGrantStatus, setBulkGrantStatus] = useState({ loading: false, error: '', success: '' });
   const [newUserGrant, setNewUserGrant] = useState({ amount: '', note: '' });
   const [newUserGrantStatus, setNewUserGrantStatus] = useState({ loading: false, error: '', success: '' });
+  const [newUserEmails, setNewUserEmails] = useState(new Set());
+
+  const loadNewUserEligibility = async () => {
+    const headers = await getAdminAuthHeaders();
+    const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/grant-prints-new-users`, {
+      method: 'GET', headers,
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error || 'Could not load new-user eligibility.');
+    setNewUserEmails(new Set(Array.isArray(result.eligibleEmails) ? result.eligibleEmails : []));
+  };
 
   // Filters
   const [search, setSearch] = useState('');
@@ -180,6 +191,7 @@ const Profiles = () => {
         result.emailWarning || '',
       ].filter(Boolean).join(' ') });
       setNewUserGrant({ amount: '', note: '' });
+      await loadNewUserEligibility();
     } catch (err) {
       setNewUserGrantStatus({ loading: false, error: err.message || 'Could not grant PRINTS to new users.', success: '' });
     }
@@ -198,6 +210,7 @@ const Profiles = () => {
         if (ordersRes.error) throw ordersRes.error;
         setProfiles(profilesRes.data || []);
         setOrders(ordersRes.data || []);
+        await loadNewUserEligibility();
       } catch (err) {
         setError(err.message || 'Failed to load profiles');
       } finally {
@@ -452,8 +465,16 @@ const Profiles = () => {
 
                   {/* Name + email */}
                   <div style={{ minWidth: 0 }}>
-                    <div style={{ fontWeight: '600', color: 'var(--text-primary)', fontSize: '0.9rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {profile.full_name || <span style={{ color: 'var(--text-muted)' }}>No name</span>}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '7px', minWidth: 0 }}>
+                      <div style={{ fontWeight: '600', color: 'var(--text-primary)', fontSize: '0.9rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {profile.full_name || <span style={{ color: 'var(--text-muted)' }}>No name</span>}
+                      </div>
+                      {newUserEmails.has(String(profile.email || '').trim().toLowerCase()) && (
+                        <span style={{
+                          flexShrink: 0, borderRadius: '999px', background: '#2563eb', color: '#fff',
+                          padding: '2px 7px', fontSize: '0.65rem', fontWeight: 800, letterSpacing: '0.06em',
+                        }}>NEW</span>
+                      )}
                     </div>
                     <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                       {profile.email}
