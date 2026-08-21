@@ -274,7 +274,7 @@ export default function AffiliateRequests() {
       setNewUserGrantStatus({ loading: false, error: 'Enter a whole PRINTS amount between 1 and 1,000,000.', success: '' });
       return;
     }
-    if (!window.confirm(`Grant ${amount.toLocaleString()} PRINTS only to accounts that have never received the new-user grant? Previous recipients will be skipped.`)) return;
+    if (!window.confirm(`Grant ${amount.toLocaleString()} PRINTS only to accounts that have never received any dashboard-admin PRINTS grant? Previous admin-grant recipients will be skipped.`)) return;
     setNewUserGrantStatus({ loading: true, error: '', success: '' });
     try {
       const authHeaders = await getAdminAuthHeaders();
@@ -495,7 +495,7 @@ export default function AffiliateRequests() {
           <div className="print-grant-icon"><Gift size={20} /></div>
           <div>
             <h2>Grant PRINTS to new users only</h2>
-            <p>Credits accounts that have never received this new-user grant. Previous recipients are automatically skipped.</p>
+            <p>Credits accounts that have never received an individual, all-user, or new-user dashboard grant. Earned rewards do not disqualify them.</p>
           </div>
         </div>
         <form className="print-grant-form" onSubmit={grantPrintsToNewUsers}>
