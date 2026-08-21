@@ -1,8 +1,39 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { parseAddress } from '../services/orderService';
+import { supabaseAdmin } from '../services/supabaseClient';
+
+const ADMIN_GRANT_SOURCES = new Set(['admin_grant', 'admin_bulk_grant', 'admin_new_user_grant']);
 
 const Customers = ({ orders }) => {
     const [copiedIndex, setCopiedIndex] = useState(null);
+    const [newUserEmails, setNewUserEmails] = useState(new Set());
+    const [newUserCount, setNewUserCount] = useState(null);
+
+    useEffect(() => {
+        let active = true;
+        const loadNewUserEligibility = async () => {
+            const [profilesResult, ledgerResult] = await Promise.all([
+                supabaseAdmin.from('profiles').select('id,email'),
+                supabaseAdmin.from('wallet_ledger_entries').select('user_id,metadata').eq('entry_type', 'manual_adjustment'),
+            ]);
+            if (!active) return;
+            if (profilesResult.error || ledgerResult.error) {
+                console.error('Could not load new-user eligibility:', profilesResult.error || ledgerResult.error);
+                setNewUserCount(null);
+                return;
+            }
+            const previouslyGrantedIds = new Set(
+                (ledgerResult.data || [])
+                    .filter((entry) => ADMIN_GRANT_SOURCES.has(entry.metadata?.source))
+                    .map((entry) => entry.user_id)
+            );
+            const eligibleProfiles = (profilesResult.data || []).filter((profile) => !previouslyGrantedIds.has(profile.id));
+            setNewUserEmails(new Set(eligibleProfiles.map((profile) => String(profile.email || '').trim().toLowerCase()).filter(Boolean)));
+            setNewUserCount(eligibleProfiles.length);
+        };
+        void loadNewUserEligibility();
+        return () => { active = false; };
+    }, []);
 
     // Extract unique customers from orders
     const customers = orders.reduce((acc, order) => {
@@ -100,7 +131,16 @@ const Customers = ({ orders }) => {
 
     return (
         <div>
-            <h1 className="page-title">Customers</h1>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
+                <h1 className="page-title" style={{ marginBottom: 0 }}>Customers</h1>
+                <span style={{
+                    display: 'inline-flex', alignItems: 'center', borderRadius: '999px',
+                    border: '1px solid #3b82f6', background: 'rgba(59, 130, 246, 0.14)',
+                    color: '#60a5fa', padding: '5px 10px', fontSize: '0.78rem', fontWeight: 700,
+                }} title="Registered accounts that have never received a dashboard-admin PRINTS grant">
+                    New users: {newUserCount === null ? '—' : newUserCount.toLocaleString()}
+                </span>
+            </div>
             <div className="data-table-container">
                 <table className="data-table">
                     <thead>
@@ -120,7 +160,18 @@ const Customers = ({ orders }) => {
                             
                             return (
                                 <tr key={index}>
-                                    <td style={{ fontWeight: 'bold' }}>{customer.name || 'Guest'}</td>
+                                    <td style={{ fontWeight: 'bold' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                                            <span>{customer.name || 'Guest'}</span>
+                                            {newUserEmails.has(String(customer.email || '').trim().toLowerCase()) && (
+                                                <span style={{
+                                                    borderRadius: '999px', background: '#2563eb', color: '#fff',
+                                                    padding: '2px 7px', fontSize: '0.65rem', fontWeight: 800,
+                                                    letterSpacing: '0.06em',
+                                                }}>NEW</span>
+                                            )}
+                                        </div>
+                                    </td>
                                     <td>{customer.email}</td>
                                     <td>{customer.phone || 'N/A'}</td>
                                     <td>
