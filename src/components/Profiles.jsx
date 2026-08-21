@@ -161,7 +161,7 @@ const Profiles = () => {
       setNewUserGrantStatus({ loading: false, error: 'Enter a whole PRINTS amount between 1 and 1,000,000.', success: '' });
       return;
     }
-    if (!window.confirm(`Grant ${amount.toLocaleString()} PRINTS only to accounts that have never received the new-user grant? Previously marked accounts will be skipped.`)) return;
+    if (!window.confirm(`Grant ${amount.toLocaleString()} PRINTS only to accounts that have never received any dashboard-admin PRINTS grant? Previous admin-grant recipients will be skipped.`)) return;
     setNewUserGrantStatus({ loading: true, error: '', success: '' });
     try {
       const headers = await getAdminAuthHeaders();
@@ -321,7 +321,7 @@ const Profiles = () => {
         <div style={{ marginBottom: '12px' }}>
           <div style={{ color: 'var(--text-primary)', fontWeight: 700 }}>Grant PRINTS to new users only</div>
           <div style={{ marginTop: '4px', color: 'var(--text-muted)', fontSize: '0.8rem' }}>
-            Credits only accounts that have never received this new-user grant. Previous recipients are automatically skipped.
+            Credits only accounts that have never received an individual, all-user, or new-user dashboard grant. Earned cashback and affiliate rewards do not disqualify them.
           </div>
         </div>
         <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
