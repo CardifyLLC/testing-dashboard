@@ -1,8 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { parseAddress } from '../services/orderService';
-import { supabaseAdmin } from '../services/supabaseClient';
-
-const ADMIN_GRANT_SOURCES = new Set(['admin_grant', 'admin_bulk_grant', 'admin_new_user_grant']);
+import { getAdminAuthHeaders } from '../services/supabaseClient';
 
 const Customers = ({ orders }) => {
     const [copiedIndex, setCopiedIndex] = useState(null);
@@ -12,24 +10,22 @@ const Customers = ({ orders }) => {
     useEffect(() => {
         let active = true;
         const loadNewUserEligibility = async () => {
-            const [profilesResult, ledgerResult] = await Promise.all([
-                supabaseAdmin.from('profiles').select('id,email'),
-                supabaseAdmin.from('wallet_ledger_entries').select('user_id,metadata').eq('entry_type', 'manual_adjustment'),
-            ]);
-            if (!active) return;
-            if (profilesResult.error || ledgerResult.error) {
-                console.error('Could not load new-user eligibility:', profilesResult.error || ledgerResult.error);
+            try {
+                const headers = await getAdminAuthHeaders();
+                const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/grant-prints-new-users`, {
+                    method: 'GET', headers,
+                });
+                const result = await response.json().catch(() => ({}));
+                if (!response.ok) throw new Error(result.error || 'Could not load new-user eligibility.');
+                if (!active) return;
+                const emails = Array.isArray(result.eligibleEmails) ? result.eligibleEmails : [];
+                setNewUserEmails(new Set(emails));
+                setNewUserCount(Number(result.eligibleCount || 0));
+            } catch (error) {
+                if (!active) return;
+                console.error('Could not load new-user eligibility:', error);
                 setNewUserCount(null);
-                return;
             }
-            const previouslyGrantedIds = new Set(
-                (ledgerResult.data || [])
-                    .filter((entry) => ADMIN_GRANT_SOURCES.has(entry.metadata?.source))
-                    .map((entry) => entry.user_id)
-            );
-            const eligibleProfiles = (profilesResult.data || []).filter((profile) => !previouslyGrantedIds.has(profile.id));
-            setNewUserEmails(new Set(eligibleProfiles.map((profile) => String(profile.email || '').trim().toLowerCase()).filter(Boolean)));
-            setNewUserCount(eligibleProfiles.length);
         };
         void loadNewUserEligibility();
         return () => { active = false; };
