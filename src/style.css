@@ -252,6 +252,84 @@ button {
   box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.15);
 }
 
+.multi-deck-page-alert {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 12px 0;
+  padding: 13px 16px;
+  border: 1px solid #f59e0b;
+  border-left: 5px solid #f97316;
+  border-radius: 10px;
+  background: rgba(249, 115, 22, 0.12);
+  color: var(--text-primary);
+}
+
+.multi-deck-page-alert-icon {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  place-items: center;
+  border-radius: 50%;
+  background: #f97316;
+  color: #fff;
+  font-size: 20px;
+  font-weight: 800;
+}
+
+.multi-deck-page-alert strong,
+.multi-deck-page-alert span {
+  display: block;
+}
+
+.multi-deck-page-alert strong { color: #fb923c; }
+.multi-deck-page-alert div > span { margin-top: 2px; color: var(--text-muted); font-size: 0.8rem; }
+
+.data-table tr.multi-deck-order-row td {
+  background: rgba(249, 115, 22, 0.08);
+  border-top: 2px solid rgba(249, 115, 22, 0.7);
+  border-bottom: 2px solid rgba(249, 115, 22, 0.7);
+}
+
+.data-table tr.multi-deck-order-row td:first-child { border-left: 5px solid #f97316; }
+.data-table tr.multi-deck-order-row td:last-child { border-right: 2px solid rgba(249, 115, 22, 0.7); }
+.data-table tr.multi-deck-order-row:hover td { background: rgba(249, 115, 22, 0.16); }
+
+.order-id-cell { white-space: nowrap; }
+
+.multi-deck-order-badge {
+  display: inline-flex;
+  margin-top: 7px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #ea580c, #f59e0b);
+  box-shadow: 0 0 0 2px rgba(249, 115, 22, 0.18);
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.multi-deck-item-count {
+  display: inline-block;
+  margin-top: 5px;
+  padding: 4px 9px;
+  border-radius: 6px;
+  background: #f97316;
+  color: #fff;
+  font-size: 0.85rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.single-deck-item-count {
+  color: var(--text-muted);
+  font-size: 0.8em;
+  font-weight: 600;
+}
+
 .orders-map-page {
   display: flex;
   flex-direction: column;
