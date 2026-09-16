@@ -163,6 +163,48 @@ export const createOrderPdfDownloadUrls = async (storagePaths) => {
     return urls;
 };
 
+/** Returns completed PDFs for orders placed on the selected local calendar date. */
+export const fetchCompletedOrderPdfsByDate = async (date) => {
+    if (!date) return [];
+    const start = new Date(`${date}T00:00:00`);
+    const end = new Date(start);
+    end.setDate(end.getDate() + 1);
+
+    const pageSize = 1000;
+    let from = 0;
+    const orderIds = [];
+    while (true) {
+        const { data, error } = await ordersClient
+            .from('orders')
+            .select('id')
+            .gte('created_at', start.toISOString())
+            .lt('created_at', end.toISOString())
+            .order('created_at', { ascending: true })
+            .range(from, from + pageSize - 1);
+        if (error) throw error;
+        const page = data || [];
+        orderIds.push(...page.map(order => order.id));
+        if (page.length < pageSize) break;
+        from += pageSize;
+    }
+
+    if (!orderIds.length) return [];
+
+    const results = [];
+    // Keep each PostgREST URL reasonably small when a day contains many orders.
+    for (let index = 0; index < orderIds.length; index += 200) {
+        const { data, error } = await ordersClient
+            .from('order_pdf_generations')
+            .select('order_id, storage_path, storage_paths, completed_at')
+            .in('order_id', orderIds.slice(index, index + 200))
+            .eq('status', 'completed')
+            .order('completed_at', { ascending: true });
+        if (error) throw error;
+        results.push(...(data || []));
+    }
+    return results;
+};
+
 // Backward-compatible exports for deployments that still contain the previous
 // Dashboard bundle. The current Dashboard no longer renders the bulk button.
 export const fetchNewOrderPdfs = async () => {
