@@ -1,6 +1,8 @@
 import { supabase, supabaseAdmin, getAdminAuthHeaders } from './supabaseClient';
+import { completeOlderOrders } from './completeOlderOrders.mjs';
 
 const ordersClient = supabaseAdmin;
+export const completeOrdersOlderThanTwoWeeks = () => completeOlderOrders(ordersClient);
 const ORDER_TIME_ZONE = 'America/Los_Angeles';
 
 const pacificDateTimeFormatter = new Intl.DateTimeFormat('en-US', {
