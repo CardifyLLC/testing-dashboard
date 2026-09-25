@@ -1,4 +1,3 @@
-import SavedDesignCleanup from './SavedDesignCleanup';
 import React, { useState, useEffect } from 'react';
 import { getAdminAuthHeaders, supabaseAdmin } from '../services/supabaseClient';
 import { buildGrantEmail, sendBulkEmailCampaign } from '../services/bulkEmailCampaign';
@@ -274,7 +273,6 @@ const Profiles = () => {
 
   return (
     <div>
-      <SavedDesignCleanup />
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px', marginBottom: '30px' }}>
         <h1 className="page-title" style={{ marginBottom: 0 }}>Profiles</h1>
         <button
