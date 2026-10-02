@@ -35,10 +35,12 @@ export function createPartnershipsHandler({ createClient, fetchImpl = fetch, env
       if (typeof body === 'string') {
         try { body = JSON.parse(body); } catch { throw new HttpError(400, 'Invalid JSON.'); }
       }
-      if (!body || !['list', 'review'].includes(body.action)) throw new HttpError(400, 'Unsupported partnership action.');
+      if (!body || !['list', 'review', 'revoke'].includes(body.action)) throw new HttpError(400, 'Unsupported partnership action.');
       const payload = body.action === 'list'
-        ? { action: 'list', status: body.status ?? 'pending', page: body.page ?? 1 }
-        : { action: 'review', id: body.id, status: body.status, approvedPercentage: body.approvedPercentage, adminNotes: body.adminNotes, expectedUpdatedAt: body.expectedUpdatedAt };
+        ? { action: 'list', status: body.status ?? 'all', page: body.page ?? 1 }
+        : body.action === 'revoke'
+          ? { action: 'revoke', id: body.id, reason: body.reason, expectedUpdatedAt: body.expectedUpdatedAt }
+          : { action: 'review', id: body.id, status: body.status, approvedPercentage: body.approvedPercentage, adminNotes: body.adminNotes, expectedUpdatedAt: body.expectedUpdatedAt };
       // Never accept a reviewer identity, destination, or server credential from the browser.
       payload.reviewer = { userId: auth.user.id, email: auth.user.email };
       const origin = env.PARTNER_PLATFORM_ORIGIN, secret = env.PARTNER_INTERNAL_SECRET;
