@@ -3,7 +3,7 @@ import { Building2, RefreshCw, ExternalLink } from 'lucide-react';
 import { partnershipRequest } from '../services/partnerships';
 import './PartnershipRequests.css';
 
-const statuses = ['pending', 'approved', 'declined', 'all'];
+const statuses = ['all', 'approved', 'revoked', 'pending', 'declined'];
 // Paused alongside the partner app. Preserve the UI code and existing saved shares.
 const PARTNER_REVENUE_SHARING_ENABLED = false;
 const displayDate = value => value ? new Date(value).toLocaleString('en-US', { timeZone: 'America/Los_Angeles', dateStyle: 'medium', timeStyle: 'short' }) : '—';
@@ -16,7 +16,18 @@ function PartnershipCard({ request, onSaved }) {
   const [notes, setNotes] = useState(request.admin_notes || '');
   const [saving, setSaving] = useState('');
   const [error, setError] = useState('');
+  const [revokeReason, setRevokeReason] = useState('');
   const site = websiteHref(request.website_url);
+  const accessStatus = request.api_blocked_at ? 'revoked' : request.status;
+
+  async function revoke() {
+    if (saving) return;
+    if (revokeReason.trim().length < 3) { setError('Enter a reason for revoking access.'); return; }
+    setSaving('revoke'); setError('');
+    try { onSaved(await partnershipRequest({ action: 'revoke', id: request.id, reason: revokeReason.trim(), expectedUpdatedAt: request.updated_at })); }
+    catch (caught) { setError(caught.message); }
+    finally { setSaving(''); }
+  }
 
   async function decide(status) {
     if (saving) return;
@@ -34,11 +45,13 @@ function PartnershipCard({ request, onSaved }) {
 
   return <article className="partnership-card">
     <div className="partnership-applicant">
-      <div className="partnership-card-heading"><h2>{request.business_name}</h2><span className={`partnership-badge ${request.status}`}>{request.status}</span></div>
+      <div className="partnership-card-heading"><h2>{request.business_name}</h2><span className={`partnership-badge ${accessStatus}`}>{accessStatus}</span></div>
       <p>{request.full_name || 'Applicant'} · <a href={`mailto:${request.email}`}>{request.email}</a></p>
       {site ? <a className="partnership-website" href={site} target="_blank" rel="noopener noreferrer">{request.website_url} <ExternalLink size={14} /></a> : <span>{request.website_url}</span>}
       <dl className="partnership-details">
         <div><dt>Submitted (Pacific)</dt><dd>{displayDate(request.created_at)}</dd></div>
+        <div><dt>Approval</dt><dd>{request.auto_approved_at ? 'Automatic on signup' : 'Existing application / manual review'}</dd></div>
+        <div><dt>Welcome email</dt><dd>{request.welcome_email_sent_at ? `Sent ${displayDate(request.welcome_email_sent_at)}` : request.welcome_email_next_attempt_at ? 'Queued for delivery' : '—'}</dd></div>
         {PARTNER_REVENUE_SHARING_ENABLED && <div><dt>Requested widget share</dt><dd>{request.proposed_percentage}%</dd></div>}
         {request.status !== 'pending' && <>
           <div><dt>Reviewed (Pacific)</dt><dd>{displayDate(request.reviewed_at)}</dd></div>
@@ -47,9 +60,12 @@ function PartnershipCard({ request, onSaved }) {
       </dl>
       {request.audience && <div className="partnership-text"><strong>Audience / application details</strong><p>{request.audience}</p></div>}
       {request.api_blocked_at && <p className="partnership-warning">This partner is blocked. Resolve the enforcement hold in partner operations before approving.</p>}
+      {request.api_block_reason && <div className="partnership-text"><strong>Revocation / enforcement reason</strong><p>{request.api_block_reason}</p></div>}
+      {request.access_revoked_at && <p>Revoked {displayDate(request.access_revoked_at)} by {request.access_revoked_by || 'administrator'}.</p>}
+      {request.welcome_email_last_error && <p className="partnership-warning">{request.welcome_email_last_error}</p>}
     </div>
     <div className="partnership-review">
-      {request.status === 'pending' ? <>
+      {request.status === 'pending' && !request.api_blocked_at ? <>
         <h3>Review application</h3>
         {PARTNER_REVENUE_SHARING_ENABLED && <><label htmlFor={`percentage-${request.id}`}>Approved resale-widget share (%)</label>
         <input id={`percentage-${request.id}`} type="number" min="0" max="30" step="0.01" value={percentage} onChange={event => setPercentage(event.target.value)} disabled={Boolean(saving)} />
@@ -63,16 +79,23 @@ function PartnershipCard({ request, onSaved }) {
         </div>
         {error && <p role="alert" className="partnership-error">{error}</p>}
       </> : <>
-        <h3>{request.status === 'approved' ? 'Partnership approved' : 'Application declined'}</h3>
-        <p className="partnership-hint">{request.status === 'approved' ? 'The partner can copy their widget, accept the manufacturing terms, and create API keys in the partner app.' : 'The partner has not been granted API access.'}</p>
+        <h3>{accessStatus === 'revoked' ? 'Access revoked' : request.status === 'approved' ? 'Partnership approved' : 'Application declined'}</h3>
+        <p className="partnership-hint">{accessStatus === 'revoked' ? 'API keys are revoked and new checkouts and production access are blocked. Signing up again does not restore this account.' : request.status === 'approved' ? 'The partner can copy their widget, accept the manufacturing terms, and create API keys in the partner app.' : 'The partner has not been granted API access.'}</p>
         {request.admin_notes && <div className="partnership-text"><strong>Review notes</strong><p>{request.admin_notes}</p></div>}
+        {accessStatus === 'approved' && <>
+          <label htmlFor={`revoke-${request.id}`}>Reason for revoking access</label>
+          <textarea id={`revoke-${request.id}`} value={revokeReason} maxLength={2000} rows={3} disabled={Boolean(saving)} onChange={event => setRevokeReason(event.target.value)} placeholder="Describe the suspicious activity or infringement report" />
+          <p className="partnership-hint">Revokes keys and holds open carts, artwork, and unshipped manufacturing orders. Stop physical production and review refunds separately.</p>
+          <button className="partnership-decline" type="button" disabled={Boolean(saving) || revokeReason.trim().length < 3} onClick={revoke}>{saving === 'revoke' ? 'Revoking…' : 'Revoke access'}</button>
+          {error && <p role="alert" className="partnership-error">{error}</p>}
+        </>}
       </>}
     </div>
   </article>;
 }
 
 export default function PartnershipRequests() {
-  const [status, setStatus] = useState('pending');
+  const [status, setStatus] = useState('all');
   const [page, setPage] = useState(1);
   const [revision, setRevision] = useState(0);
   const [loaded, setLoaded] = useState({ key: null, data: { requests: [], total: 0, pageSize: 25 }, error: '' });
@@ -94,6 +117,10 @@ export default function PartnershipRequests() {
   }, [status, page, key]);
 
   function saved(result) {
+    if (result.revoked) {
+      setNotice({ sent: true, text: `${result.request.business_name}: access revoked. API keys, open carts, and unshipped production are blocked.` });
+      setRevision(value => value + 1); return;
+    }
     setNotice({ sent: Boolean(result.email?.sent), text: `${result.request.business_name}: ${result.request.status}. ${result.email?.sent ? 'Decision email sent.' : 'Decision saved, but the email was not sent. Check Gmail configuration in the partner app.'}` });
     setRevision(value => value + 1);
   }
@@ -101,7 +128,7 @@ export default function PartnershipRequests() {
   const pages = Math.max(1, Math.ceil(data.total / data.pageSize));
   return <section className="partnership-page">
     <header className="partnership-heading">
-      <div><h1 className="page-title"><Building2 size={30} /> Partnership Requests</h1><p>Review partner applications and manage access to the manufacturing API.</p></div>
+      <div><h1 className="page-title"><Building2 size={30} /> Partnerships</h1><p>New applications activate automatically. View approvals, email delivery, and revoke widget and API access when necessary.</p></div>
       <button type="button" className="partnership-refresh" disabled={loading} onClick={() => setRevision(value => value + 1)}><RefreshCw size={16} /> Refresh</button>
     </header>
     <nav className="partnership-filters" aria-label="Application status">
