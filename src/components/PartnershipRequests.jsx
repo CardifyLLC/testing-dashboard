@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
-import { Building2, RefreshCw, ExternalLink } from 'lucide-react';
+import { Building2, RefreshCw, ExternalLink, ShoppingBag } from 'lucide-react';
 import { partnershipRequest } from '../services/partnerships';
 import './PartnershipRequests.css';
 
 const statuses = ['all', 'approved', 'revoked', 'declined'];
 const displayDate = value => value ? new Date(value).toLocaleString('en-US', { timeZone: 'America/Los_Angeles', dateStyle: 'medium', timeStyle: 'short' }) : '—';
+const displayCount = value => Number.isSafeInteger(value) && value >= 0 ? value.toLocaleString('en-US') : '—';
 function websiteHref(value) {
   try { const url = new URL(value); return ['https:', 'http:'].includes(url.protocol) ? url.href : null; } catch { return null; }
 }
@@ -30,6 +31,11 @@ function PartnershipCard({ request, onSaved }) {
       <div className="partnership-card-heading"><h2>{request.business_name}</h2><span className={`partnership-badge ${accessStatus}`}>{accessStatus}</span></div>
       <p>{request.full_name || 'Applicant'} · <a href={`mailto:${request.email}`}>{request.email}</a></p>
       {site ? <a className="partnership-website" href={site} target="_blank" rel="noopener noreferrer">{request.website_url} <ExternalLink size={14} /></a> : <span>{request.website_url}</span>}
+      <div className="partnership-order-count">
+        <ShoppingBag size={19} aria-hidden="true" />
+        <span>API + widget orders</span>
+        <strong>{displayCount(request.order_count)}</strong>
+      </div>
       <dl className="partnership-details">
         <div><dt>Submitted (Pacific)</dt><dd>{displayDate(request.created_at)}</dd></div>
         <div><dt>Approval</dt><dd>{request.auto_approved_at ? 'Automatic' : request.status === 'pending' ? 'Activation incomplete' : 'Previously reviewed'}</dd></div>
@@ -98,6 +104,12 @@ export default function PartnershipRequests() {
     </nav>
     {notice && <div role="status" className={notice.sent ? 'partnership-success' : 'partnership-warning'}>{notice.text}</div>}
     {error ? <div role="alert" className="partnership-error">{error}</div> : loading ? <p role="status" className="partnership-empty">Loading partnership requests…</p> : <>
+      <div className="partnership-order-summary">
+        <ShoppingBag size={26} aria-hidden="true" />
+        <div><span>API + widget orders</span><p>All partners · all time</p></div>
+        <strong>{displayCount(data.totalOrders)}</strong>
+      </div>
+      {(data.orderCountsUnavailable || data.totalOrders == null) && <p role="status" className="partnership-warning">Order totals are temporarily unavailable. Refresh to try again.</p>}
       <p className="partnership-count">{data.total} {status === 'all' ? '' : `${status} `}application{data.total === 1 ? '' : 's'}</p>
       {data.requests.length ? <div className="partnership-list">{data.requests.map(request => <PartnershipCard key={`${request.id}:${request.updated_at}`} request={request} onSaved={saved} />)}</div>
         : <div className="partnership-empty">No {status === 'all' ? '' : `${status} `}partnership requests.</div>}
