@@ -1,6 +1,8 @@
+import { isPartnerOrder } from '../src/services/partnerArtwork.mjs';
 import { createClient } from '@supabase/supabase-js';
 import { degrees, PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import sharp from 'sharp';
+import { downloadOrderImage } from './download-order-image.mjs';
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -11,13 +13,15 @@ const ORDER_PDF_WEBHOOK_SECRET = process.env.ORDER_PDF_WEBHOOK_SECRET;
 const MAX_ORDERS = Math.max(1, Number.parseInt(process.env.MAX_ORDERS || '3', 10) || 3);
 const MAX_ATTEMPTS = Math.max(1, Number.parseInt(process.env.MAX_ATTEMPTS || '5', 10) || 5);
 const STALE_MS = 30 * 60 * 1000;
-const IMAGE_TIMEOUT_MS = 30_000;
 // Match BatcherPRO's locked canvas export: 67 x 92 mm at 1,200 DPI, encoded
 // with its quality-0.50 JPEG profile.
 const TARGET_DPI = 1200;
 const IMAGE_WIDTH = Math.ceil(67 / 25.4 * TARGET_DPI);
 const IMAGE_HEIGHT = Math.ceil(92 / 25.4 * TARGET_DPI);
 const IMAGE_QUALITY = 50;
+
+class MissingImageCandidateError extends Error {}
+class MissingOrderImageError extends Error {}
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
   throw new Error('SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required.');
@@ -42,11 +46,11 @@ const REG_MARK_WIDTH = mmToPt(3.3);
 const REG_MARK_HEIGHT = mmToPt(60);
 const COLS = 6;
 const CARDS_PER_SHEET = 18;
-// The printer requires large orders in parts of no more than 20 duplex sheets:
-// 20 front pages + 20 back pages = 40 PDF pages (360 cards) per file.
-// The order-pdfs bucket is configured with a 500 MB object limit for these
-// full-quality 1,200 DPI parts.
-const MAX_SHEETS_PER_FILE = 20;
+const CUSTOMER_NAME_FONT_SIZE = 12;
+// Supabase accepts at most 500 MB per object. A real 20-sheet/40-page part
+// reached 518.3 MB at the required 1,200 DPI/q50 quality, so use at most 18
+// duplex sheets (36 PDF pages / 324 cards) and retain some upload headroom.
+const MAX_SHEETS_PER_FILE = 18;
 const MAX_CARDS_PER_FILE = CARDS_PER_SHEET * MAX_SHEETS_PER_FILE;
 
 const asArray = value => {
@@ -148,32 +152,45 @@ const cardsFromOrder = order => {
 
 const fetchImage = async urls => {
   let lastError;
+  let lastMissingError;
+  let sawTemporaryFailure = false;
   for (const url of urls) {
     try {
       let bytes;
       if (url.startsWith('data:')) {
         const match = url.match(/^data:[^;,]+;base64,(.+)$/s);
-        if (!match) throw new Error('Unsupported inline image.');
+        if (!match) throw new MissingImageCandidateError('invalid inline image data');
         bytes = Buffer.from(match[1], 'base64');
       } else {
-        const response = await fetch(url, {
-          headers: { apikey: SUPABASE_SERVICE_ROLE_KEY, Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}` },
-          signal: AbortSignal.timeout(IMAGE_TIMEOUT_MS),
+        const response = await downloadOrderImage(url, {
+          apikey: SUPABASE_SERVICE_ROLE_KEY, Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
         });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        bytes = Buffer.from(await response.arrayBuffer());
+        if (response.status === 404 || response.status === 410) {
+          throw new MissingImageCandidateError(`missing object (HTTP ${response.status}) from ${url}`);
+        }
+        if (!response.ok) throw new Error(`temporary download failure (HTTP ${response.status}) from ${url}`);
+        bytes = response.bytes;
       }
-      if (!bytes.length) throw new Error(`empty response from ${url}`);
-      return sharp(bytes)
-        .resize({ width: IMAGE_WIDTH, height: IMAGE_HEIGHT, fit: 'fill', kernel: sharp.kernel.lanczos3 })
-        .flatten({ background: '#ffffff' })
-        .jpeg({ quality: IMAGE_QUALITY })
-        .toBuffer();
+      if (!bytes.length) throw new MissingImageCandidateError(`empty image object from ${url}`);
+      try {
+        return await sharp(bytes)
+          .resize({ width: IMAGE_WIDTH, height: IMAGE_HEIGHT, fit: 'fill', kernel: sharp.kernel.lanczos3 })
+          .flatten({ background: '#ffffff' })
+          .jpeg({ quality: IMAGE_QUALITY })
+          .toBuffer();
+      } catch (error) {
+        throw new MissingImageCandidateError(`invalid or corrupted image from ${url}: ${error.message}`);
+      }
     } catch (error) {
       lastError = error;
+      if (error instanceof MissingImageCandidateError) lastMissingError = error;
+      else sawTemporaryFailure = true;
     }
   }
-  throw new Error(`Could not download an order image after trying ${urls.length} source(s): ${lastError?.message || 'no usable URL'}`);
+  if (!sawTemporaryFailure && lastMissingError) {
+    throw new MissingOrderImageError(`Order card image is missing or invalid after checking ${urls.length} source(s): ${lastMissingError.message}`);
+  }
+  throw new Error(`Could not prepare an order image because of a temporary download or processing failure after trying ${urls.length} source(s): ${lastError?.message || 'no usable URL'}`);
 };
 
 const drawRegistrationBar = (page, isBackPage) => {
@@ -204,7 +221,11 @@ const generatePdf = async (order, cards, onProgress) => {
     const frontPage = pdf.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
     drawRegistrationBar(frontPage, false);
     frontPage.drawText(String(order.customer_name || 'Unknown Customer'), {
-      x: MARGIN_LEFT, y: PAGE_HEIGHT - mmToPt(7), size: 7, font, color: rgb(0, 0, 0),
+      x: MARGIN_LEFT,
+      y: PAGE_HEIGHT - mmToPt(13.5),
+      size: CUSTOMER_NAME_FONT_SIZE,
+      font,
+      color: rgb(0, 0, 0),
     });
     for (let index = 0; index < sheet.length; index += 1) {
       const col = index % COLS;
@@ -260,10 +281,11 @@ const notifyCustomerRepairRequired = async orderId => {
 
 const backfillMissingJobs = async () => {
   const { data: paidOrders, error: ordersError } = await supabase
-    .from('orders').select('id').ilike('status', 'paid').order('created_at', { ascending: true }).limit(1000);
+    .from('orders').select('id,metadata').ilike('status', 'paid').order('created_at', { ascending: true }).limit(1000);
   if (ordersError) throw ordersError;
   if (!paidOrders?.length) return;
-  const ids = paidOrders.map(order => order.id);
+  const ids = paidOrders.filter(order=>!isPartnerOrder(order)).map(order => order.id);
+  if (!ids.length) return;
   const { data: existing, error: jobsError } = await supabase
     .from('order_pdf_generations').select('order_id').in('order_id', ids);
   if (jobsError) throw jobsError;
@@ -281,14 +303,15 @@ const findJobs = async () => {
   // can share nearly identical timestamps, so ordering the jobs themselves does
   // not reliably prioritize the newest customer orders.
   const { data: recentOrders, error: ordersError } = await supabase.from('orders')
-    .select('id, created_at').ilike('status', 'paid')
+    .select('id, created_at, metadata').ilike('status', 'paid')
     .order('created_at', { ascending: false }).limit(1000);
   if (ordersError) throw ordersError;
   if (!recentOrders?.length) return [];
-  const recentIds = recentOrders.map(order => order.id);
+  const recentIds = recentOrders.filter(order=>!isPartnerOrder(order)).map(order => order.id);
+  if (!recentIds.length) return [];
   const { data, error } = await supabase.from('order_pdf_generations')
     .select('*').in('order_id', recentIds)
-    .neq('status', 'completed').lt('attempt_count', MAX_ATTEMPTS + 1);
+    .neq('status', 'completed').lt('attempt_count', MAX_ATTEMPTS);
   if (error) throw error;
   const jobsByOrderId = new Map((data || []).map(job => [job.order_id, job]));
   const cutoff = Date.now() - STALE_MS;
@@ -301,6 +324,20 @@ const findJobs = async () => {
 };
 
 const processJob = async job => {
+  // A job may have completed after findJobs() read the queue (for example, if
+  // another worker finished it). Re-check immediately before doing any work so
+  // an existing completed PDF is never regenerated or overwritten.
+  const { data: currentJob, error: currentJobError } = await supabase
+    .from('order_pdf_generations')
+    .select('status')
+    .eq('order_id', job.order_id)
+    .maybeSingle();
+  if (currentJobError) throw currentJobError;
+  if (!currentJob || currentJob.status === 'completed') {
+    console.log(`Skipping ${job.order_id}: PDF is already completed.`);
+    return;
+  }
+
   const startedAt = new Date().toISOString();
   await updateJob(job.order_id, {
     status: 'processing', error_message: null, started_at: startedAt,
@@ -343,17 +380,19 @@ const processJob = async job => {
     await updateJob(order.id, {
       status: 'completed', storage_path: storagePaths[0], storage_paths: storagePaths,
       processed_cards: cards.length, total_cards: cards.length, total_parts: totalParts, completed_parts: totalParts,
-      completed_at: new Date().toISOString(), error_message: null,
+      completed_at: new Date().toISOString(), error_message: null, repair_required: false,
     });
     console.log(`Completed ${order.id}.`);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    const repairRequired = message.includes('Could not download an order image');
+    const repairRequired = error instanceof MissingOrderImageError;
+    const nextAttemptCount = Number(job.attempt_count || 0) + 1;
+    const finalAttemptFailed = nextAttemptCount >= MAX_ATTEMPTS;
     await updateJob(job.order_id, {
       status: 'failed', error_message: message.slice(0, 1000),
-      ...(repairRequired ? { repair_required: true } : {}),
+      repair_required: repairRequired && finalAttemptFailed,
     });
-    if (repairRequired) {
+    if (repairRequired && finalAttemptFailed) {
       try {
         await notifyCustomerRepairRequired(job.order_id);
       } catch (notificationError) {
