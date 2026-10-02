@@ -10,6 +10,13 @@
 .partnership-filters button { color: var(--text-muted); background: var(--bg-card); border: 1px solid var(--border-color); text-transform: capitalize; }
 .partnership-filters button.active { background: #2563eb; color: #fff; border-color: #3b82f6; }
 .partnership-count { margin: 16px 0; font-size: .85rem; }
+.partnership-order-summary { display: flex; align-items: center; gap: 16px; padding: 20px 24px; margin: 18px 0; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 12px; }
+.partnership-order-summary > svg, .partnership-order-count > svg { color: #60a5fa; flex-shrink: 0; }
+.partnership-order-summary span { font-weight: 600; }
+.partnership-order-summary p { margin: 5px 0 0; font-size: .8rem; color: var(--text-muted); }
+.partnership-order-summary strong { margin-left: auto; font-size: 2rem; font-variant-numeric: tabular-nums; }
+.partnership-order-count { display: flex; align-items: center; gap: 10px; padding: 12px 14px; margin-top: 20px; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 8px; font-size: .85rem; }
+.partnership-order-count strong { margin-left: auto; font-size: 1.3rem; font-variant-numeric: tabular-nums; }
 .partnership-list { display: grid; gap: 18px; }
 .partnership-card { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(280px, 1fr); border: 1px solid var(--border-color); border-radius: 12px; background: var(--bg-card); overflow: hidden; }
 .partnership-applicant, .partnership-review { padding: 24px; min-width: 0; overflow-wrap: anywhere; }
