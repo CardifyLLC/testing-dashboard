@@ -4,6 +4,8 @@ import { partnershipRequest } from '../services/partnerships';
 import './PartnershipRequests.css';
 
 const statuses = ['pending', 'approved', 'declined', 'all'];
+// Paused alongside the partner app. Preserve the UI code and existing saved shares.
+const PARTNER_REVENUE_SHARING_ENABLED = false;
 const displayDate = value => value ? new Date(value).toLocaleString('en-US', { timeZone: 'America/Los_Angeles', dateStyle: 'medium', timeStyle: 'short' }) : '—';
 function websiteHref(value) {
   try { const url = new URL(value); return ['https:', 'http:'].includes(url.protocol) ? url.href : null; } catch { return null; }
@@ -18,13 +20,13 @@ function PartnershipCard({ request, onSaved }) {
 
   async function decide(status) {
     if (saving) return;
-    if (status === 'approved' && (percentage.trim() === '' || !Number.isFinite(Number(percentage)) || Number(percentage) < 0 || Number(percentage) > 30 || Math.abs(Number(percentage) * 100 - Math.round(Number(percentage) * 100)) > 0.000001)) {
+    if (PARTNER_REVENUE_SHARING_ENABLED && status === 'approved' && (percentage.trim() === '' || !Number.isFinite(Number(percentage)) || Number(percentage) < 0 || Number(percentage) > 30 || Math.abs(Number(percentage) * 100 - Math.round(Number(percentage) * 100)) > 0.000001)) {
       setError('Enter a percentage from 0 to 30 with at most two decimal places.');
       return;
     }
     setSaving(status); setError('');
     try {
-      const result = await partnershipRequest({ action: 'review', id: request.id, status, approvedPercentage: Number(percentage), adminNotes: notes, expectedUpdatedAt: request.updated_at });
+      const result = await partnershipRequest({ action: 'review', id: request.id, status, ...(PARTNER_REVENUE_SHARING_ENABLED ? { approvedPercentage: Number(percentage) } : {}), adminNotes: notes, expectedUpdatedAt: request.updated_at });
       onSaved(result);
     } catch (caught) { setError(caught.message); }
     finally { setSaving(''); }
@@ -37,7 +39,7 @@ function PartnershipCard({ request, onSaved }) {
       {site ? <a className="partnership-website" href={site} target="_blank" rel="noopener noreferrer">{request.website_url} <ExternalLink size={14} /></a> : <span>{request.website_url}</span>}
       <dl className="partnership-details">
         <div><dt>Submitted (Pacific)</dt><dd>{displayDate(request.created_at)}</dd></div>
-        <div><dt>Requested widget share</dt><dd>{request.proposed_percentage}%</dd></div>
+        {PARTNER_REVENUE_SHARING_ENABLED && <div><dt>Requested widget share</dt><dd>{request.proposed_percentage}%</dd></div>}
         {request.status !== 'pending' && <>
           <div><dt>Reviewed (Pacific)</dt><dd>{displayDate(request.reviewed_at)}</dd></div>
           <div><dt>Reviewed by</dt><dd>{request.reviewed_by || '—'}</dd></div>
@@ -49,9 +51,10 @@ function PartnershipCard({ request, onSaved }) {
     <div className="partnership-review">
       {request.status === 'pending' ? <>
         <h3>Review application</h3>
-        <label htmlFor={`percentage-${request.id}`}>Approved resale-widget share (%)</label>
+        {PARTNER_REVENUE_SHARING_ENABLED && <><label htmlFor={`percentage-${request.id}`}>Approved resale-widget share (%)</label>
         <input id={`percentage-${request.id}`} type="number" min="0" max="30" step="0.01" value={percentage} onChange={event => setPercentage(event.target.value)} disabled={Boolean(saving)} />
-        <p className="partnership-hint">This percentage applies to the resale widget. REST API orders currently use standard checkout and customer affiliate rewards.</p>
+        <p className="partnership-hint">This percentage applies to the resale widget. REST API orders currently use standard checkout and customer affiliate rewards.</p></>}
+        <p className="partnership-hint">Approval unlocks widget and REST API access. No Stripe Connect account is required.</p>
         <label htmlFor={`notes-${request.id}`}>Review notes (included in a decline email)</label>
         <textarea id={`notes-${request.id}`} maxLength={2000} rows={3} value={notes} onChange={event => setNotes(event.target.value)} disabled={Boolean(saving)} placeholder="Optional notes about your decision" />
         <div className="partnership-actions">
@@ -60,8 +63,8 @@ function PartnershipCard({ request, onSaved }) {
         </div>
         {error && <p role="alert" className="partnership-error">{error}</p>}
       </> : <>
-        <h3>{request.status === 'approved' ? `Approved widget share: ${request.approved_percentage ?? request.proposed_percentage}%` : 'Application declined'}</h3>
-        <p className="partnership-hint">{request.status === 'approved' ? 'Approved partners can accept the manufacturing API terms and create their API keys in the partner app.' : 'The partner has not been granted API access.'}</p>
+        <h3>{request.status === 'approved' ? 'Partnership approved' : 'Application declined'}</h3>
+        <p className="partnership-hint">{request.status === 'approved' ? 'The partner can copy their widget, accept the manufacturing terms, and create API keys in the partner app.' : 'The partner has not been granted API access.'}</p>
         {request.admin_notes && <div className="partnership-text"><strong>Review notes</strong><p>{request.admin_notes}</p></div>}
       </>}
     </div>
