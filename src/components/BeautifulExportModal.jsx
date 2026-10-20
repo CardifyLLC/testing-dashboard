@@ -23,15 +23,16 @@ const BeautifulExportModal = ({
   selection = 'customer',
   onSelectionChange
 }) => {
-  if (!isOpen) return null;
-
-  const title = mode === 'pdf' ? 'Export PDF' : 'Export Mask PDF';
-
   // Use the CSS you already added: body.modal-open { overflow: hidden; }
   useEffect(() => {
+    if (!isOpen) return;
     document.body.classList.add('modal-open');
     return () => document.body.classList.remove('modal-open');
-  }, []);
+  }, [isOpen]);
+
+  if (!isOpen) return null;
+
+  const title = mode === 'pdf' ? 'Export PDF' : mode === 'iridesse' ? 'Export Iridesse (Silver Layer)' : 'Export Mask PDF';
 
   const modal = (
     <div

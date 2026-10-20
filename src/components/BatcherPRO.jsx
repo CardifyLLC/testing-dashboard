@@ -7,6 +7,7 @@ import React, { useState, useRef, useEffect, createContext, useContext } from 'r
 import { jsPDF } from 'jspdf';
 import { Upload, FileText, Settings, Download, Layers, X, Grid, Image as ImageIcon, RefreshCw, ArrowRight, ArrowLeft, ZoomIn, ZoomOut, Move, RotateCcw, Eye, Printer, Save, FolderOpen, Trash2, RotateCw, Layout, GripVertical, Hand, MousePointer2, AlignCenterVertical, Scissors, ImagePlus, Images, Sparkles, Calendar, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
 import BeautifulExportModal from './BeautifulExportModal';
+import { combineIridesse, SPOT_NAME } from '../services/iridesseCombine.mjs';
 import { fetchPaidOrdersForBatcher, fetchOrderById, getOrderImageUrl as getAdminOrderImageUrl, updateOrderCardData, updateOrderCardImages } from '../services/orderService';
 
 // DEBUG: log image natural vs rendered dimensions to locate where quality is lost
@@ -79,10 +80,11 @@ const INITIAL_CONFIG = {
 
 const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = false, onAccessLost }) => {
   const mounted = useRef(true);
+  const iridesseBusy = useRef(false);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const checkTeamAccess = async () => {
-    if (!teamAccess) return;
     if (!mounted.current) throw new Error('Batcher closed.');
+    if (!teamAccess) return;
     const grant = await dashboardAccessRequest();
     if (!grant.permissions.includes('batcher')) { onAccessLost?.(); throw new Error('Batcher access has been removed.'); }
     if (!mounted.current) throw new Error('Batcher closed.');
@@ -1251,7 +1253,7 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
 
   // Locked export path: this matches the canvas → JPEG workflow that the client
   // approved for PDF output quality.
-  const processImageForPrintLocked = async (imageUrl, widthMM, heightMM, rotate180 = false) => {
+  const processImageForPrintLocked = async (imageUrl, widthMM, heightMM, rotate180 = false, qualityOverride) => {
     const resolvedUrl = await resolveOrderImage(imageUrl);
     return new Promise((resolve, reject) => {
       const img = new Image();
@@ -1261,6 +1263,7 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
         const heightPx = Math.ceil((heightMM / 25.4) * LOCKED_TARGET_DPI);
 
         const canvas = document.createElement('canvas');
+        try {
         canvas.width = widthPx;
         canvas.height = heightPx;
         const ctx = canvas.getContext('2d');
@@ -1285,7 +1288,14 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
         let quality = 0.92;
         if (LOCKED_TARGET_DPI >= 600) quality = 0.80;
         if (LOCKED_TARGET_DPI >= 1200) quality = 0.50;
+        if (qualityOverride) quality = qualityOverride;
         resolve(canvas.toDataURL('image/jpeg', quality));
+        } catch (error) {
+          reject(error);
+        } finally {
+          canvas.width = canvas.height = 1;
+          img.src = '';
+        }
       };
       img.onerror = reject;
       img.src = resolvedUrl;
@@ -1298,6 +1308,7 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
     // If there's no customer context on this page, just export all (no prompt needed)
     if (!currentCustomerName) {
       if (mode === 'mask') generateSpotMaskPDF();
+      else if (mode === 'iridesse') generateIridessePDF();
       else generatePDF();
       return;
     }
@@ -1334,11 +1345,12 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
     }
 
     if (mode === 'mask') generateSpotMaskPDF(pagesOverride);
+    else if (mode === 'iridesse') generateIridessePDF(pagesOverride);
     else generatePDF(pagesOverride);
   };
 
   // --- PDF GENERATION: Main Artwork (chunked for large orders) ---
-  const generatePDF = async (pagesOverride) => {
+  const generatePDF = async (pagesOverride, opts = {}) => {
     const partnerIds=[...new Set((pagesOverride || customerPages).flatMap(page=>(page.entries || []).map(entry=>entry.card?.partnerOrderId)).filter(Boolean))];
     try {
       await checkTeamAccess();
@@ -1346,7 +1358,7 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
         const manifest=teamAccess ? (await teamBatcherOrder(orderId)).partnerArtwork : await partnerOrderRequest({action:'manifest',orderId,prepare:false});
         if(!manifest.ready)throw new Error(`Partner order ${orderId.slice(0,8)} is not available for printing.`);
       }
-    } catch(error) { alert(error.message); return; }
+    } catch(error) { if (opts.collect) throw error; alert(error.message); return; }
 
     setGenerating(true);
     setGenerationProgress(0);
@@ -1396,6 +1408,7 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
               processedGlobalBackRotated = await processImageForPrintLocked(backImage, cWidth, cHeight, true);
             }
           } catch (e) {
+            if (opts.collect) throw new Error('Back artwork could not be loaded. Iridesse export stopped.');
             console.error('Back image failed to load (skipping backs).', e);
             processedGlobalBack = null;
             processedGlobalBackRotated = null;
@@ -1441,6 +1454,7 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
                   doc.rect(x, y, cWidth, cHeight);
                 }
               } catch (e) {
+                if (opts.collect) throw new Error('Front artwork could not be loaded. Iridesse export stopped.');
                 if (pageImages[i]?.partnerOrderId) throw new Error('Partner front artwork could not be loaded. Refresh the order before printing.');
                 console.error(e);
               }
@@ -1495,6 +1509,7 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
                     sourceToUse = cached;
                     aliasId = cacheKey;
                   } catch (e) {
+                    if (opts.collect) throw new Error('Custom back artwork could not be loaded. Iridesse export stopped.');
                     if (card.partnerOrderId) throw new Error('Partner back artwork could not be loaded. Refresh the order before printing.');
                     console.error('Custom back failed to load (skipping this back).', e);
                     sourceToUse = null;
@@ -1527,6 +1542,7 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
 
         await checkTeamAccess();
         const arrayBuffer = doc.output('arraybuffer');
+        if (opts.collect) { opts.collect.push(arrayBuffer); continue; }
         const blob = new Blob([arrayBuffer], { type: 'application/pdf' });
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
@@ -1545,15 +1561,18 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
       setGenerationProgress(100);
     } catch (err) {
       console.error("PDF Gen Error", err);
+      if (opts.collect) { opts.collect.length = 0; throw err; }
       alert("Failed to generate PDF.");
     }
-    setGenerationLabel('');
-    setGenerationStartedAt(null);
-    setGenerating(false);
+    if (!opts.collect) {
+      setGenerationLabel('');
+      setGenerationStartedAt(null);
+      setGenerating(false);
+    }
   };
 
   // --- PDF Generation: Spot Mask Only (chunked, With Sync Blanks) ---
-  const generateSpotMaskPDF = async (pagesOverride) => {
+  const generateSpotMaskPDF = async (pagesOverride, opts = {}) => {
     setGenerating(true);
     setGenerationProgress(0);
     setGenerationLabel('Exporting mask PDF');
@@ -1563,6 +1582,7 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
     const MAX_SHEETS_PER_FILE = 20;
 
     try {
+      await checkTeamAccess();
       const cWidth = getConfigNum('cardWidth');
       const cHeight = getConfigNum('cardHeight');
       const mTop = getConfigNum('marginTop');
@@ -1573,7 +1593,6 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
 
       const pages = pagesOverride || customerPages;
       const pageCount = pages.length;
-      const hasAnyBacks = backImage || frontImages.some(img => img.customBack);
       const chunkCount = Math.max(1, Math.ceil(pageCount / MAX_SHEETS_PER_FILE));
 
       let stepsCompleted = 0;
@@ -1597,10 +1616,10 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
 
           const pageImages = (pages[p]?.entries || []).map(e => e.card);
 
-          if (config.showRegMarks) drawRegistrationBar(doc, false);
+          if (config.showRegMarks && !opts.collect) drawRegistrationBar(doc, false);
 
           const customerName = pages[p]?.customerName;
-          if (customerName) {
+          if (customerName && !opts.collect) {
             doc.setTextColor(0, 0, 0);
             doc.setFontSize(12);
             const headerY = Math.max(6, mTop - 2);
@@ -1619,17 +1638,18 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
                 const cacheKey = `mask::${pageImages[i].spotMask}`;
                 let maskImage = spotImageCache[cacheKey];
                 if (!maskImage) {
-                  maskImage = await processImageForPrintLocked(pageImages[i].spotMask, cWidth, cHeight, false);
+                  maskImage = await processImageForPrintLocked(pageImages[i].spotMask, cWidth, cHeight, false, 0.92);
                   spotImageCache[cacheKey] = maskImage;
                 }
                 doc.addImage(maskImage, 'JPEG', x, y, cWidth, cHeight, cacheKey, 'FAST');
-              } catch (e) { console.error(e); }
+              } catch (e) { throw new Error(`Silver mask could not be loaded for card ${i + 1} on sheet ${p + 1}. ${e.message || ''}`); }
             }
           }
           stepsCompleted++;
           setGenerationProgress(Math.round((stepsCompleted / totalSteps) * 100));
 
-          if (hasAnyBacks) {
+          // Same rule as the art export, per sheet, so page counts always line up
+          if (backImage || pageImages.some(img => img?.customBack)) {
             doc.addPage([PAGE_WIDTH_MM, PAGE_HEIGHT_MM], config.orientation);
           }
           stepsCompleted++;
@@ -1642,6 +1662,7 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
 
         await checkTeamAccess();
         const arrayBuffer = doc.output('arraybuffer');
+        if (opts.collect) { opts.collect.push(arrayBuffer); continue; }
         const blob = new Blob([arrayBuffer], { type: 'application/pdf' });
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
@@ -1660,13 +1681,62 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
       setGenerationProgress(100);
     } catch (err) {
       console.error("Spot PDF Gen Error", err);
-      alert("Failed to generate Spot PDF.");
+      if (opts.collect) { opts.collect.length = 0; throw err; }
+      alert(`Failed to generate Spot PDF: ${err.message}`);
     }
-    setGenerationLabel('');
-    setGenerationStartedAt(null);
-    setGenerating(false);
+    if (!opts.collect) {
+      setGenerationLabel('');
+      setGenerationStartedAt(null);
+      setGenerating(false);
+    }
   };
 
+
+  // One art/mask pair at a time bounds memory for large exports.
+  const generateIridessePDF = async (pagesOverride) => {
+    if (iridesseBusy.current) return;
+    iridesseBusy.current = true;
+    setGenerating(true);
+    setGenerationStartedAt(Date.now());
+    setGenerationProgress(0);
+    try {
+      const pages = pagesOverride || customerPages;
+      const parts = Math.ceil(pages.length / 20);
+      for (let i = 0; i < parts; i++) {
+        await checkTeamAccess();
+        const chunk = pages.slice(i * 20, (i + 1) * 20);
+        const artParts = [], maskParts = [];
+        await generatePDF(chunk, { collect: artParts });
+        await generateSpotMaskPDF(chunk, { collect: maskParts });
+        if (artParts.length !== 1 || maskParts.length !== 1) throw new Error('Art or mask export is incomplete.');
+        setGenerationLabel(`Building Iridesse ${SPOT_NAME} layer (${i + 1}/${parts})`);
+        const bytes = await combineIridesse(artParts[0], maskParts[0], {
+          onProgress: (done, total) =>
+            setGenerationProgress(Math.round(done / Math.max(1, total) * 100)),
+        });
+        await checkTeamAccess();
+        const partSuffix = parts > 1 ? `-part${i + 1}` : '';
+        const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `Combined_card-sheet-${LOCKED_TARGET_DPI}dpi${partSuffix}_${SPOT_NAME}.pdf`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        setTimeout(() => URL.revokeObjectURL(url), 30_000);
+        if (i < parts - 1) await new Promise(r => setTimeout(r, 1500));
+      }
+      setGenerationProgress(100);
+    } catch (err) {
+      console.error('Iridesse PDF Error', err);
+      alert(`Failed to build Iridesse file: ${err.message}`);
+    } finally {
+      iridesseBusy.current = false;
+      setGenerationLabel('');
+      setGenerationStartedAt(null);
+      setGenerating(false);
+    }
+  };
 
   const drawRegistrationBar = (doc, isBackPage) => {
     doc.setFillColor(0, 0, 0);
@@ -1986,6 +2056,15 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
                   >
                     {generating ? <RefreshCw className="animate-spin w-3 h-3" /> : <Sparkles className="w-3 h-3" />}
                     Export Mask
+                  </button>
+                  <button
+                    onClick={() => openExportScopeModal('iridesse')}
+                    disabled={generating || isUpscaling || frontImages.length === 0}
+                    title="Art + spot mask in one file, White layer for Iridesse"
+                    className="flex items-center justify-center gap-2 min-w-[140px] px-6 py-2 rounded-lg font-semibold transition-all text-xs bg-slate-800 hover:bg-slate-700 text-fuchsia-300 border border-slate-700"
+                  >
+                    {generating ? <RefreshCw className="animate-spin w-3 h-3" /> : <Layers className="w-3 h-3" />}
+                    Export Iridesse
                   </button>
                   <button
                     onClick={() => openExportScopeModal('pdf')}
@@ -3234,6 +3313,15 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
             >
               {generating ? <RefreshCw className="animate-spin w-3 h-3" /> : <Sparkles className="w-3 h-3" />}
               Export Mask
+            </button>
+            <button
+              onClick={() => openExportScopeModal('iridesse')}
+              disabled={generating || isUpscaling || frontImages.length === 0}
+              title="Art + spot mask in one file, White layer for Iridesse"
+              className="flex items-center justify-center gap-2 min-w-[140px] px-6 py-2 rounded-lg font-semibold transition-all text-xs bg-slate-800 hover:bg-slate-700 text-fuchsia-300 border border-slate-700"
+            >
+              {generating ? <RefreshCw className="animate-spin w-3 h-3" /> : <Layers className="w-3 h-3" />}
+              Export Iridesse
             </button>
             <button
               onClick={() => openExportScopeModal('pdf')}
