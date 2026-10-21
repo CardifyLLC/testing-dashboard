@@ -7,6 +7,7 @@ import React, { useState, useRef, useEffect, createContext, useContext } from 'r
 import { jsPDF } from 'jspdf';
 import { Upload, FileText, Settings, Download, Layers, X, Grid, Image as ImageIcon, RefreshCw, ArrowRight, ArrowLeft, ZoomIn, ZoomOut, Move, RotateCcw, Eye, Printer, Save, FolderOpen, Trash2, RotateCw, Layout, GripVertical, Hand, MousePointer2, AlignCenterVertical, Scissors, ImagePlus, Images, Sparkles, Calendar, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
 import BeautifulExportModal from './BeautifulExportModal';
+import { REFERENCE_LAYOUT, gridPosition } from '../services/batcherLayout.mjs';
 import { buildIridesseFiles, SPOT_NAME } from '../services/iridesseCombine.mjs';
 import { fetchPaidOrdersForBatcher, fetchOrderById, getOrderImageUrl as getAdminOrderImageUrl, updateOrderCardData, updateOrderCardImages } from '../services/orderService';
 
@@ -49,11 +50,8 @@ const INITIAL_CONFIG = {
   gridCols: 6,
   gridRows: 3,
 
-  // Layout Defaults (Locked)
-  marginTop: 15.5,
-  marginLeft: 9.7,
-  gapHorizontal: 2.6,
-  gapVertical: 6.4,
+  // Layout measured from all three supplied reference sheets (millimetres).
+  ...REFERENCE_LAYOUT,
 
   // Card Size (Locked)
   cardWidth: DEFAULT_CARD_WIDTH,
@@ -257,9 +255,6 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
 
   const { width: PAGE_WIDTH_MM, height: PAGE_HEIGHT_MM } = getActiveSheetDims();
   const cardsPerPage = config.gridCols * config.gridRows;
-  const CUSTOMER_HEADER_HEIGHT_MM = 7;
-  const CUSTOMER_HEADER_GAP_MM = 3;
-  const CUSTOMER_HEADER_OFFSET_MM = CUSTOMER_HEADER_HEIGHT_MM + CUSTOMER_HEADER_GAP_MM;
 
   // Build pages that pack multiple orders onto the same sheet when there are empty slots.
   // Each page is { customerName: string|null, entries: Array<{ card, index, customerName }> } where index is in `frontImages`.
@@ -1435,8 +1430,7 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
             const col = i % cols;
             const row = Math.floor(i / cols);
 
-            const x = mLeft + (col * (cWidth + gHorz));
-            const y = mTop + (row * (cHeight + gVert));
+            const { x, y } = gridPosition(col, row, cWidth, cHeight, mLeft, mTop, gHorz, gVert);
 
             if (pageImages[i]) {
               try {
@@ -1476,8 +1470,7 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
               const col = i % cols;
               const row = Math.floor(i / cols);
 
-              const frontBaseX = mLeft + (col * (cWidth + gHorz));
-              const frontBaseY = mTop + (row * (cHeight + gVert));
+              const { x: frontBaseX, y: frontBaseY } = gridPosition(col, row, cWidth, cHeight, mLeft, mTop, gHorz, gVert);
 
               let x, y;
               let useRotatedImage = false;
@@ -1630,8 +1623,7 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
             const col = i % cols;
             const row = Math.floor(i / cols);
 
-            const x = mLeft + (col * (cWidth + gHorz));
-            const y = mTop + (row * (cHeight + gVert));
+            const { x, y } = gridPosition(col, row, cWidth, cHeight, mLeft, mTop, gHorz, gVert);
 
             if (pageImages[i] && pageImages[i].spotMask) {
               try {
@@ -2921,7 +2913,7 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
                             const row = Math.floor(i / getConfigNum('gridCols'));
 
                             let mmX = getConfigNum('marginLeft') + (col * (getConfigNum('cardWidth') + getConfigNum('gapHorizontal')));
-                            let mmY = (getConfigNum('marginTop') + CUSTOMER_HEADER_OFFSET_MM) + (row * (getConfigNum('cardHeight') + getConfigNum('gapVertical')));
+                            let mmY = getConfigNum('marginTop') + (row * (getConfigNum('cardHeight') + getConfigNum('gapVertical')));
 
                             if (previewSide === 'back') {
                               if (config.flipBackPage) {
@@ -4110,7 +4102,7 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
                       const row = Math.floor(i / getConfigNum('gridCols'));
 
                       let mmX = getConfigNum('marginLeft') + (col * (getConfigNum('cardWidth') + getConfigNum('gapHorizontal')));
-                      let mmY = (getConfigNum('marginTop') + CUSTOMER_HEADER_OFFSET_MM) + (row * (getConfigNum('cardHeight') + getConfigNum('gapVertical')));
+                      let mmY = getConfigNum('marginTop') + (row * (getConfigNum('cardHeight') + getConfigNum('gapVertical')));
 
                       if (previewSide === 'back') {
                         if (config.flipBackPage) {
