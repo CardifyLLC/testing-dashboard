@@ -1,9 +1,10 @@
-// Combine Batcher's art and masks, preserving matching duplex sheet positions.
-// DeviceCMYK conversion is generic, not an ICC press-profile conversion.
+// Follow the supplied Acrobat workflow: White spot mask underneath the
+// original artwork, with the artwork on a CMYK-named layer set to overprint.
+// The CMYK layer name does not convert or re-encode the artwork's images.
 import { PDFDocument, PDFName, PDFDict, PDFRawStream, PDFRef, PDFArray, PDFString } from 'pdf-lib';
 import pako from 'pako';
 
-export const SPOT_NAME = 'Silver';
+export const SPOT_NAME = 'White';
 
 export async function browserDecodePixels(bytes) {
   const bitmap = await createImageBitmap(new Blob([bytes], { type: 'image/jpeg' }));
@@ -63,26 +64,23 @@ async function imagePixels(stream, decodePixels) {
   return result;
 }
 
-export function pixelsToGray({ data, components }) {
-  if (components === 1) return new Uint8Array(data);
-  const gray = new Uint8Array(data.length / 3);
-  for (let i = 0, j = 0; j < gray.length; i += 3, j++) {
-    gray[j] = Math.round((data[i] * 299 + data[i + 1] * 587 + data[i + 2] * 114) / 1000);
+export function pixelsToGray({ data, components }, gamma = 1.4) {
+  if (!Number.isFinite(gamma) || gamma <= 0) throw new Error('Mask gamma must be a positive number.');
+  const gray = new Uint8Array(data.length / components);
+  // The supplied workflow uses gamma 1.4 to approximate Acrobat's grayscale
+  // preflight. Black remains full spot ink; white remains no spot ink.
+  const lut = Uint8Array.from({ length: 256 }, (_, value) => Math.round(255 * (value / 255) ** gamma));
+  for (let i = 0, j = 0; j < gray.length; i += components, j++) {
+    const value = components === 1 ? data[i]
+      : Math.round((data[i] * 299 + data[i + 1] * 587 + data[i + 2] * 114) / 1000);
+    gray[j] = lut[value];
   }
   return gray;
 }
 
-export function pixelsToCmyk({ data, components }) {
-  const cmyk = new Uint8Array(data.length / components * 4);
-  for (let i = 0, j = 0; i < data.length; i += components, j += 4) {
-    const r = data[i], g = components === 1 ? r : data[i + 1], b = components === 1 ? r : data[i + 2];
-    const max = Math.max(r, g, b);
-    cmyk[j] = max ? Math.round((max - r) / max * 255) : 0;
-    cmyk[j + 1] = max ? Math.round((max - g) / max * 255) : 0;
-    cmyk[j + 2] = max ? Math.round((max - b) / max * 255) : 0;
-    cmyk[j + 3] = 255 - max;
-  }
-  return cmyk;
+function sameBox(left, right) {
+  // Acrobat and jsPDF can serialize the same box with different rounding.
+  return ['x', 'y', 'width', 'height'].every(key => Math.abs(left[key] - right[key]) < 0.000001);
 }
 
 function imageJobs(document) {
@@ -100,15 +98,16 @@ function imageJobs(document) {
 }
 
 export async function combineIridesse(artBytes, maskBytes, opts = {}) {
-  const { decodePixels = browserDecodePixels, onProgress } = opts;
+  const { gamma = 1.4, decodePixels = browserDecodePixels, onProgress } = opts;
+  if (!Number.isFinite(gamma) || gamma <= 0) throw new Error('Mask gamma must be a positive number.');
   const art = await PDFDocument.load(artBytes);
   const mask = await PDFDocument.load(maskBytes);
   const artPages = art.getPages(), maskPages = mask.getPages();
   if (!artPages.length || artPages.length !== maskPages.length) throw new Error('Art and mask page counts do not match.');
   artPages.forEach((page, i) => {
     const other = maskPages[i];
-    if (JSON.stringify(page.getMediaBox()) !== JSON.stringify(other.getMediaBox())
-      || JSON.stringify(page.getCropBox()) !== JSON.stringify(other.getCropBox())
+    if (!sameBox(page.getMediaBox(), other.getMediaBox())
+      || !sameBox(page.getCropBox(), other.getCropBox())
       || page.getRotation().angle !== other.getRotation().angle) {
       throw new Error(`Art and mask page ${i + 1} have different sizes or rotation.`);
     }
@@ -117,33 +116,25 @@ export async function combineIridesse(artBytes, maskBytes, opts = {}) {
   const mctx = mask.context, actx = art.context;
   const tint = mctx.register(mctx.obj({
     FunctionType: 2, Domain: [0, 1], N: 1,
-    C0: [0, 0, 0, 0], C1: [0, 0, 0, 0.4], Range: [0, 1, 0, 1, 0, 1, 0, 1],
+    C0: [0, 0, 0, 0], C1: [1, 0, 0, 0], Range: [0, 1, 0, 1, 0, 1, 0, 1],
   }));
   const separation = mctx.register(mctx.obj(['Separation', SPOT_NAME, 'DeviceCMYK', tint]));
-  const artJobs = imageJobs(art), maskJobs = imageJobs(mask);
+  const maskJobs = imageJobs(mask);
+  const converted = new Map();
   let done = 0;
-  for (const [document, jobs, isMask] of [[art, artJobs, false], [mask, maskJobs, true]]) {
-    const converted = new Map();
-    for (const { xobjs, name, ref, stream } of jobs) {
-      let replacement = converted.get(ref.toString());
-      if (!replacement) {
-        if (!isMask && stream.dict.lookup(PDFName.of('ColorSpace'))?.toString() === '/DeviceCMYK') {
-          replacement = ref;
-        } else {
-          const pixels = await imagePixels(stream, decodePixels);
-          replacement = document.context.register(document.context.flateStream(
-            isMask ? pixelsToGray(pixels) : pixelsToCmyk(pixels), {
-              Type: 'XObject', Subtype: 'Image', Width: pixels.width, Height: pixels.height,
-              BitsPerComponent: 8, ColorSpace: isMask ? separation : 'DeviceCMYK',
-              ...(isMask ? { Decode: [1, 0] } : {}),
-            }));
-        }
-        converted.set(ref.toString(), replacement);
-      }
-      xobjs.set(name, replacement);
-      onProgress?.(++done, artJobs.length + maskJobs.length);
-      await new Promise(resolve => setTimeout(resolve, 0));
+  for (const { xobjs, name, ref, stream } of maskJobs) {
+    let replacement = converted.get(ref.toString());
+    if (!replacement) {
+      const pixels = await imagePixels(stream, decodePixels);
+      replacement = mctx.register(mctx.flateStream(pixelsToGray(pixels, gamma), {
+        Type: 'XObject', Subtype: 'Image', Width: pixels.width, Height: pixels.height,
+        BitsPerComponent: 8, ColorSpace: separation, Decode: [1, 0],
+      }));
+      converted.set(ref.toString(), replacement);
     }
+    xobjs.set(name, replacement);
+    onProgress?.(++done, maskJobs.length);
+    await new Promise(resolve => setTimeout(resolve, 0));
   }
 
   const embedded = await art.embedPages(maskPages);
