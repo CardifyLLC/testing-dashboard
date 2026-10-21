@@ -1,7 +1,7 @@
 // Follow the supplied Acrobat workflow: White spot mask underneath the
 // original artwork, with the artwork on a CMYK-named layer set to overprint.
 // The CMYK layer name does not convert or re-encode the artwork's images.
-import { PDFDocument, PDFName, PDFDict, PDFRawStream, PDFRef, PDFArray, PDFString } from 'pdf-lib';
+import { PDFDocument, PDFName, PDFDict, PDFRawStream, PDFRef, PDFArray, PDFString, StandardFonts, rgb } from 'pdf-lib';
 import pako from 'pako';
 
 export const SPOT_NAME = 'White';
@@ -179,5 +179,68 @@ export async function buildIridesseFiles(artBytes, maskBytes, opts = {}) {
   // backs and page geometry. No second conversion or artwork is added to it.
   const whiteMaskPdf = await mask.save({ useObjectStreams: false });
   const combinedPdf = await art.save({ useObjectStreams: false });
-  return { combinedPdf, whiteMaskPdf };
+  const previewPdf = await buildIridessePreview(artBytes, whiteMaskPdf);
+  return { combinedPdf, whiteMaskPdf, previewPdf };
+}
+
+// A screen proof only: show the actual mask over the original card artwork.
+// Work on new documents so neither manufacturing PDF can be changed by this.
+export async function buildIridessePreview(artBytes, whiteMaskBytes) {
+  const proof = await PDFDocument.load(artBytes);
+  const mask = await PDFDocument.load(whiteMaskBytes);
+  const pages = proof.getPages(), masks = mask.getPages();
+  if (!pages.length || pages.length !== masks.length) throw new Error('Preview art and mask page counts do not match.');
+  pages.forEach((page, i) => {
+    if (!sameBox(page.getMediaBox(), masks[i].getMediaBox())
+      || !sameBox(page.getCropBox(), masks[i].getCropBox())
+      || page.getRotation().angle !== masks[i].getRotation().angle) {
+      throw new Error(`Preview art and mask page ${i + 1} have different sizes or rotation.`);
+    }
+  });
+  const mctx = mask.context, pctx = proof.context;
+  // A constant cyan palette plus the original mask as alpha keeps the pixels
+  // aligned, leaves unmasked areas untouched, and avoids an RGB-sized buffer.
+  const palette = Uint8Array.from({ length: 768 }, (_, i) => [0, 180, 255][i % 3]);
+  const colors = mctx.obj(['Indexed', 'DeviceRGB', 255, mctx.register(mctx.stream(palette))]);
+  const seen = new Set();
+  for (const { ref, stream } of imageJobs(mask)) {
+    if (seen.has(ref.toString())) continue;
+    seen.add(ref.toString());
+    const cs = stream.dict.lookup(PDFName.of('ColorSpace'));
+    if (!(cs instanceof PDFArray) || cs.get(0).toString() !== '/Separation'
+      || cs.get(1).toString() !== `/${SPOT_NAME}`) throw new Error('Preview requires a converted White mask.');
+    const alpha = stream.dict.clone(mctx);
+    alpha.set(PDFName.of('ColorSpace'), PDFName.of('DeviceGray'));
+    // Black source pixels mean full ink, so invert them to full alpha.
+    alpha.set(PDFName.of('Decode'), mctx.obj([1, 0]));
+    stream.dict.set(PDFName.of('SMask'), mctx.register(PDFRawStream.of(alpha, stream.contents)));
+    stream.dict.set(PDFName.of('ColorSpace'), colors);
+    stream.dict.delete(PDFName.of('Decode'));
+  }
+  const embedded = await proof.embedPages(masks);
+  const overlay = pctx.register(pctx.obj({ Type: 'ExtGState', ca: 0.45, CA: 0.45, BM: 'Normal', op: false, OP: false }));
+  const font = await proof.embedFont(StandardFonts.Helvetica);
+  pages.forEach((page, i) => {
+    page.node.normalize();
+    const resources = page.node.Resources().clone(pctx);
+    page.node.set(PDFName.of('Resources'), resources);
+    for (const [group, name, value] of [['XObject', 'MaskPreview', embedded[i].ref], ['ExtGState', 'MaskPreview', overlay]]) {
+      const previous = resources.lookupMaybe(PDFName.of(group), PDFDict);
+      const dict = previous ? previous.clone(pctx) : pctx.obj({});
+      dict.set(PDFName.of(name), value);
+      resources.set(PDFName.of(group), dict);
+    }
+    page.node.addContentStream(pctx.register(pctx.stream('q /MaskPreview gs /MaskPreview Do Q\n')));
+    // Add a proof banner above the original sheet, without covering any cards.
+    const box = page.getMediaBox(), crop = page.getCropBox();
+    page.setMediaBox(box.x, box.y, box.width, box.height + 28);
+    page.setCropBox(crop.x, crop.y, crop.width, crop.height + 28);
+    page.drawRectangle({ x: box.x, y: box.y + box.height, width: box.width, height: 28, color: rgb(0.92, 0.97, 1) });
+    const label = 'PREVIEW ONLY - NOT FOR PRINTING | Cyan overlay shows White-mask coverage';
+    const size = Math.min(10, Math.max(1, (box.width - 20) / font.widthOfTextAtSize(label, 1)));
+    page.drawText(label, { x: box.x + 10, y: box.y + box.height + 10, size, font, color: rgb(0.05, 0.16, 0.23) });
+  });
+  proof.setTitle('PREVIEW ONLY - Artwork with White-mask overlay');
+  proof.setSubject('Visual mask placement proof. Use the combined and White-mask PDFs for printing.');
+  return proof.save({ useObjectStreams: false });
 }
