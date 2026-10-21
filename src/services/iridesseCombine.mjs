@@ -97,7 +97,7 @@ function imageJobs(document) {
   return jobs;
 }
 
-export async function combineIridesse(artBytes, maskBytes, opts = {}) {
+async function buildIridesseDocuments(artBytes, maskBytes, opts = {}) {
   const { gamma = 1.4, decodePixels = browserDecodePixels, onProgress } = opts;
   if (!Number.isFinite(gamma) || gamma <= 0) throw new Error('Mask gamma must be a positive number.');
   const art = await PDFDocument.load(artBytes);
@@ -165,5 +165,19 @@ export async function combineIridesse(artBytes, maskBytes, opts = {}) {
   art.catalog.set(PDFName.of('OCProperties'), actx.obj({
     OCGs: [cmykLayer, spotLayer], D: { Order: [spotLayer, cmykLayer], ON: [cmykLayer, spotLayer], OFF: [] },
   }));
+  return { art, mask };
+}
+
+export async function combineIridesse(artBytes, maskBytes, opts = {}) {
+  const { art } = await buildIridesseDocuments(artBytes, maskBytes, opts);
   return art.save({ useObjectStreams: false });
+}
+
+export async function buildIridesseFiles(artBytes, maskBytes, opts = {}) {
+  const { art, mask } = await buildIridesseDocuments(artBytes, maskBytes, opts);
+  // Save the exact converted mask used in the combined file, preserving blank
+  // backs and page geometry. No second conversion or artwork is added to it.
+  const whiteMaskPdf = await mask.save({ useObjectStreams: false });
+  const combinedPdf = await art.save({ useObjectStreams: false });
+  return { combinedPdf, whiteMaskPdf };
 }
