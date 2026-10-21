@@ -1710,7 +1710,7 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
         await generateSpotMaskPDF(chunk, { collect: maskParts });
         if (artParts.length !== 1 || maskParts.length !== 1) throw new Error('Art or mask export is incomplete.');
         setGenerationLabel(`Building Iridesse ${SPOT_NAME} layer (${i + 1}/${parts})`);
-        const { combinedPdf, whiteMaskPdf } = await buildIridesseFiles(artParts[0], maskParts[0], {
+        const { combinedPdf, whiteMaskPdf, previewPdf } = await buildIridesseFiles(artParts[0], maskParts[0], {
           onProgress: (done, total) =>
             setGenerationProgress(Math.round(done / Math.max(1, total) * 100)),
         });
@@ -1720,6 +1720,7 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
         const zip = new JSZip();
         zip.file(`Combined_card-sheet-${LOCKED_TARGET_DPI}dpi${partSuffix}_${SPOT_NAME}.pdf`, combinedPdf);
         zip.file(`card-sheet-SPOT-MASK${partSuffix}_${SPOT_NAME}.pdf`, whiteMaskPdf);
+        zip.file(`PREVIEW-ONLY_card-sheet${partSuffix}_${SPOT_NAME}-overlay.pdf`, previewPdf);
         // One download keeps the companion mask from being blocked by the
         // browser's automatic multiple-download protection.
         const blob = await zip.generateAsync({ type: 'blob', compression: 'STORE' });
@@ -2079,7 +2080,7 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
                   <button
                     onClick={() => openExportScopeModal('iridesse')}
                     disabled={generating || isUpscaling || frontImages.length === 0}
-                    title="Download combined artwork and separate White-mask PDFs in a ZIP"
+                    title="Download combined artwork, White mask, and an artwork-with-mask preview in a ZIP"
                     className="flex items-center justify-center gap-2 min-w-[140px] px-6 py-2 rounded-lg font-semibold transition-all text-xs bg-slate-800 hover:bg-slate-700 text-fuchsia-300 border border-slate-700"
                   >
                     {generating ? <RefreshCw className="animate-spin w-3 h-3" /> : <Layers className="w-3 h-3" />}
@@ -3336,7 +3337,7 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
             <button
               onClick={() => openExportScopeModal('iridesse')}
               disabled={generating || isUpscaling || frontImages.length === 0}
-              title="Download combined artwork and separate White-mask PDFs in a ZIP"
+              title="Download combined artwork, White mask, and an artwork-with-mask preview in a ZIP"
               className="flex items-center justify-center gap-2 min-w-[140px] px-6 py-2 rounded-lg font-semibold transition-all text-xs bg-slate-800 hover:bg-slate-700 text-fuchsia-300 border border-slate-700"
             >
               {generating ? <RefreshCw className="animate-spin w-3 h-3" /> : <Layers className="w-3 h-3" />}

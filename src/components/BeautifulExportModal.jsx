@@ -54,7 +54,7 @@ const BeautifulExportModal = ({
                 <h2 className="text-3xl font-bold text-slate-900 leading-tight">{title}</h2>
                 <p className="text-base text-slate-600 mt-2">
                   {mode === 'iridesse'
-                    ? 'Download a ZIP with the combined artwork PDF and a separate White-mask PDF. Both use the same page order.'
+                    ? 'Download a ZIP with three PDFs: combined artwork, the separate White mask, and a preview showing the cyan mask over your cards. The preview is for checking placement only.'
                     : 'Choose which cards to include in your export'}
                 </p>
               </div>
