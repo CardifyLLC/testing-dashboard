@@ -1881,18 +1881,18 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
               <BatcherPROSidebar />
             </div>
           </aside>
-          <main className="main-content" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', backgroundColor: 'var(--bg-primary)' }}>
+          <main className="main-content" style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', backgroundColor: 'var(--bg-primary)' }}>
             <div className="min-h-screen w-full bg-slate-800 text-slate-100 font-sans flex flex-col select-none" style={{ flex: 1 }}>
 
               {/* Header */}
-              <header className="bg-slate-900 text-white p-4 shadow-lg flex justify-between items-center z-[200]">
+              <header className="bg-slate-900 text-white p-4 shadow-lg flex flex-wrap gap-3 justify-between items-center shrink-0 z-[200]">
                 <div className="flex items-center gap-3">
                   <Layers className="text-blue-400" />
                   <h1 className="text-xl font-bold tracking-wider">CardBatcher<span className="text-blue-400">Pro</span></h1>
                 </div>
 
                 {/* Tool Bar */}
-                <div className="flex items-center gap-4">
+                <div className="flex flex-wrap items-center gap-3 min-w-0 max-w-full">
                   {/* Interaction Tools */}
                   <div className="flex items-center bg-slate-800 rounded-lg p-1 border border-slate-700">
                     <button
@@ -1912,7 +1912,7 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
                   </div>
 
                   {/* Side Toggle */}
-                  <div className="flex items-center gap-2 bg-slate-800 rounded-lg p-1 border border-slate-700">
+                  <div className="flex flex-wrap items-center gap-2 bg-slate-800 rounded-lg p-1 border border-slate-700">
                     <button
                       onClick={() => setPreviewSide('front')}
                       className={`shrink-0 whitespace-nowrap min-w-[92px] min-h-[30px] px-4 py-1.5 rounded text-xs font-bold leading-none transition-all flex items-center justify-center gap-2 ${previewSide === 'front'
@@ -2036,7 +2036,7 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
                   </div>
                 )}
 
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2 max-w-full">
                   {!teamAccess && <button
                     onClick={upscaleLoadedImages}
                     disabled={generating || isUpscaling || frontImages.length === 0 || !UPSCALE_API_URL}
@@ -2058,15 +2058,6 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
                     Export Mask
                   </button>
                   <button
-                    onClick={() => openExportScopeModal('iridesse')}
-                    disabled={generating || isUpscaling || frontImages.length === 0}
-                    title="Art + spot mask in one file, White layer for Iridesse"
-                    className="flex items-center justify-center gap-2 min-w-[140px] px-6 py-2 rounded-lg font-semibold transition-all text-xs bg-slate-800 hover:bg-slate-700 text-fuchsia-300 border border-slate-700"
-                  >
-                    {generating ? <RefreshCw className="animate-spin w-3 h-3" /> : <Layers className="w-3 h-3" />}
-                    Export Iridesse
-                  </button>
-                  <button
                     onClick={() => openExportScopeModal('pdf')}
                     disabled={generating || isUpscaling || frontImages.length === 0}
                     className={`flex items-center justify-center gap-2 min-w-[140px] px-10 py-2 rounded-lg font-semibold transition-all ${generating || isUpscaling || frontImages.length === 0
@@ -2076,6 +2067,15 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
                   >
                     {generating ? <RefreshCw className="animate-spin w-4 h-4" /> : <Download className="w-4 h-4" />}
                     {generating ? `Processing` : 'Export PDF'}
+                  </button>
+                  <button
+                    onClick={() => openExportScopeModal('iridesse')}
+                    disabled={generating || isUpscaling || frontImages.length === 0}
+                    title="Art + spot mask in one file, White layer for Iridesse"
+                    className="flex items-center justify-center gap-2 min-w-[140px] px-6 py-2 rounded-lg font-semibold transition-all text-xs bg-slate-800 hover:bg-slate-700 text-fuchsia-300 border border-slate-700"
+                  >
+                    {generating ? <RefreshCw className="animate-spin w-3 h-3" /> : <Layers className="w-3 h-3" />}
+                    Export Iridesse
                   </button>
                 </div>
               </header>
@@ -3142,14 +3142,14 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
         />
 
         {/* Header */}
-        <header className="bg-slate-900 text-white p-4 shadow-lg flex justify-between items-center z-20">
+        <header className="bg-slate-900 text-white p-4 shadow-lg flex flex-wrap gap-3 justify-between items-center shrink-0 z-20">
           <div className="flex items-center gap-3">
             <Layers className="text-blue-400" />
             <h1 className="text-xl font-bold tracking-wider">CardBatcher<span className="text-blue-400">Pro</span></h1>
           </div>
 
           {/* Tool Bar */}
-          <div className="flex items-center gap-4">
+          <div className="flex flex-wrap items-center gap-3 min-w-0 max-w-full">
             {/* Interaction Tools */}
             <div className="flex items-center bg-slate-800 rounded-lg p-1 border border-slate-700">
               <button
@@ -3169,7 +3169,7 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
             </div>
 
             {/* Side Toggle */}
-            <div className="flex items-center bg-slate-800 rounded-lg p-1 border border-slate-700 gap-1">
+            <div className="flex flex-wrap items-center bg-slate-800 rounded-lg p-1 border border-slate-700 gap-1">
               <button
                 onClick={() => setPreviewSide('front')}
                 className={`shrink-0 whitespace-nowrap min-w-[92px] min-h-[30px] px-4 py-1.5 rounded text-xs font-bold leading-none transition-all flex items-center justify-center gap-2 ${previewSide === 'front'
@@ -3293,7 +3293,7 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
             </div>
           )}
 
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2 max-w-full">
             {!teamAccess && <button
               onClick={upscaleLoadedImages}
               disabled={generating || isUpscaling || frontImages.length === 0 || !UPSCALE_API_URL}
@@ -3315,15 +3315,6 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
               Export Mask
             </button>
             <button
-              onClick={() => openExportScopeModal('iridesse')}
-              disabled={generating || isUpscaling || frontImages.length === 0}
-              title="Art + spot mask in one file, White layer for Iridesse"
-              className="flex items-center justify-center gap-2 min-w-[140px] px-6 py-2 rounded-lg font-semibold transition-all text-xs bg-slate-800 hover:bg-slate-700 text-fuchsia-300 border border-slate-700"
-            >
-              {generating ? <RefreshCw className="animate-spin w-3 h-3" /> : <Layers className="w-3 h-3" />}
-              Export Iridesse
-            </button>
-            <button
               onClick={() => openExportScopeModal('pdf')}
               disabled={generating || isUpscaling || frontImages.length === 0}
               className={`flex items-center justify-center gap-2 min-w-[140px] px-10 py-2 rounded-lg font-semibold transition-all ${generating || isUpscaling || frontImages.length === 0
@@ -3333,6 +3324,15 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
             >
               {generating ? <RefreshCw className="animate-spin w-4 h-4" /> : <Download className="w-4 h-4" />}
               {generating ? `Processing` : 'Export PDF'}
+            </button>
+            <button
+              onClick={() => openExportScopeModal('iridesse')}
+              disabled={generating || isUpscaling || frontImages.length === 0}
+              title="Art + spot mask in one file, White layer for Iridesse"
+              className="flex items-center justify-center gap-2 min-w-[140px] px-6 py-2 rounded-lg font-semibold transition-all text-xs bg-slate-800 hover:bg-slate-700 text-fuchsia-300 border border-slate-700"
+            >
+              {generating ? <RefreshCw className="animate-spin w-3 h-3" /> : <Layers className="w-3 h-3" />}
+              Export Iridesse
             </button>
           </div>
         </header>
