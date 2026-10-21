@@ -32,7 +32,7 @@ const BeautifulExportModal = ({
 
   if (!isOpen) return null;
 
-  const title = mode === 'pdf' ? 'Export PDF' : mode === 'iridesse' ? 'Export Iridesse (Silver Layer)' : 'Export Mask PDF';
+  const title = mode === 'pdf' ? 'Export PDF' : mode === 'iridesse' ? 'Export Iridesse (White Layer)' : 'Export Mask PDF';
 
   const modal = (
     <div
