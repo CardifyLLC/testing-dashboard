@@ -13,7 +13,7 @@ const BeautifulExportModal = ({
   isOpen,
   onClose,
   onConfirm,
-  mode = 'pdf', // 'pdf' or 'mask'
+  mode = 'pdf', // 'pdf', 'mask', or 'iridesse'
   customerName = null,
   customerCount = 0,
   totalCount = 0,
@@ -53,7 +53,9 @@ const BeautifulExportModal = ({
               <div className="min-w-0 flex-1 pt-1">
                 <h2 className="text-3xl font-bold text-slate-900 leading-tight">{title}</h2>
                 <p className="text-base text-slate-600 mt-2">
-                  Choose which cards to include in your export
+                  {mode === 'iridesse'
+                    ? 'Download a ZIP with the combined artwork PDF and a separate White-mask PDF. Both use the same page order.'
+                    : 'Choose which cards to include in your export'}
                 </p>
               </div>
             </div>

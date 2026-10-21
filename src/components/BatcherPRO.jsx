@@ -7,7 +7,7 @@ import React, { useState, useRef, useEffect, createContext, useContext } from 'r
 import { jsPDF } from 'jspdf';
 import { Upload, FileText, Settings, Download, Layers, X, Grid, Image as ImageIcon, RefreshCw, ArrowRight, ArrowLeft, ZoomIn, ZoomOut, Move, RotateCcw, Eye, Printer, Save, FolderOpen, Trash2, RotateCw, Layout, GripVertical, Hand, MousePointer2, AlignCenterVertical, Scissors, ImagePlus, Images, Sparkles, Calendar, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
 import BeautifulExportModal from './BeautifulExportModal';
-import { combineIridesse, SPOT_NAME } from '../services/iridesseCombine.mjs';
+import { buildIridesseFiles, SPOT_NAME } from '../services/iridesseCombine.mjs';
 import { fetchPaidOrdersForBatcher, fetchOrderById, getOrderImageUrl as getAdminOrderImageUrl, updateOrderCardData, updateOrderCardImages } from '../services/orderService';
 
 // DEBUG: log image natural vs rendered dimensions to locate where quality is lost
@@ -1710,16 +1710,24 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
         await generateSpotMaskPDF(chunk, { collect: maskParts });
         if (artParts.length !== 1 || maskParts.length !== 1) throw new Error('Art or mask export is incomplete.');
         setGenerationLabel(`Building Iridesse ${SPOT_NAME} layer (${i + 1}/${parts})`);
-        const bytes = await combineIridesse(artParts[0], maskParts[0], {
+        const { combinedPdf, whiteMaskPdf } = await buildIridesseFiles(artParts[0], maskParts[0], {
           onProgress: (done, total) =>
             setGenerationProgress(Math.round(done / Math.max(1, total) * 100)),
         });
-        await checkTeamAccess();
         const partSuffix = parts > 1 ? `-part${i + 1}` : '';
-        const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+        setGenerationLabel(`Packaging Iridesse PDFs (${i + 1}/${parts})`);
+        const { default: JSZip } = await import('jszip');
+        const zip = new JSZip();
+        zip.file(`Combined_card-sheet-${LOCKED_TARGET_DPI}dpi${partSuffix}_${SPOT_NAME}.pdf`, combinedPdf);
+        zip.file(`card-sheet-SPOT-MASK${partSuffix}_${SPOT_NAME}.pdf`, whiteMaskPdf);
+        // One download keeps the companion mask from being blocked by the
+        // browser's automatic multiple-download protection.
+        const blob = await zip.generateAsync({ type: 'blob', compression: 'STORE' });
+        await checkTeamAccess();
+        const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = url;
-        link.download = `Combined_card-sheet-${LOCKED_TARGET_DPI}dpi${partSuffix}_${SPOT_NAME}.pdf`;
+        link.download = `Iridesse_card-sheet-${LOCKED_TARGET_DPI}dpi${partSuffix}_${SPOT_NAME}.zip`;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
@@ -2071,7 +2079,7 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
                   <button
                     onClick={() => openExportScopeModal('iridesse')}
                     disabled={generating || isUpscaling || frontImages.length === 0}
-                    title="Art + spot mask in one file, White layer for Iridesse"
+                    title="Download combined artwork and separate White-mask PDFs in a ZIP"
                     className="flex items-center justify-center gap-2 min-w-[140px] px-6 py-2 rounded-lg font-semibold transition-all text-xs bg-slate-800 hover:bg-slate-700 text-fuchsia-300 border border-slate-700"
                   >
                     {generating ? <RefreshCw className="animate-spin w-3 h-3" /> : <Layers className="w-3 h-3" />}
@@ -3328,7 +3336,7 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
             <button
               onClick={() => openExportScopeModal('iridesse')}
               disabled={generating || isUpscaling || frontImages.length === 0}
-              title="Art + spot mask in one file, White layer for Iridesse"
+              title="Download combined artwork and separate White-mask PDFs in a ZIP"
               className="flex items-center justify-center gap-2 min-w-[140px] px-6 py-2 rounded-lg font-semibold transition-all text-xs bg-slate-800 hover:bg-slate-700 text-fuchsia-300 border border-slate-700"
             >
               {generating ? <RefreshCw className="animate-spin w-3 h-3" /> : <Layers className="w-3 h-3" />}
