@@ -3,6 +3,7 @@
 // The CMYK layer name does not convert or re-encode the artwork's images.
 import { PDFDocument, PDFName, PDFDict, PDFRawStream, PDFRef, PDFArray, PDFString, StandardFonts, rgb } from 'pdf-lib';
 import pako from 'pako';
+import { profileGray } from './maskColorProfile.mjs';
 
 export const SPOT_NAME = 'White';
 
@@ -61,19 +62,32 @@ async function imagePixels(stream, decodePixels) {
   }
   if (result.width !== width || result.height !== height || ![1, 3].includes(result.components)
     || result.data.length !== width * height * result.components) throw new Error('Invalid print image dimensions.');
+  // Browser JPEG decoders expand a DeviceGray image to RGB. Preserve its
+  // original profile semantics instead of treating it as Adobe RGB.
+  if (components === 1 && result.components === 3) {
+    result = { ...result, components: 1, data: Uint8Array.from({ length: width * height }, (_, i) => result.data[i * 3]) };
+  }
   return result;
 }
 
-export function pixelsToGray({ data, components }, gamma = 1.4) {
-  if (!Number.isFinite(gamma) || gamma <= 0) throw new Error('Mask gamma must be a positive number.');
+export function pixelsToGray({ data, components }, gamma) {
+  if (![1, 3].includes(components) || data.length % components) throw new Error('Invalid mask pixels.');
+  if (gamma !== undefined && (!Number.isFinite(gamma) || gamma <= 0)) throw new Error('Mask gamma must be a positive number.');
   const gray = new Uint8Array(data.length / components);
-  // The supplied workflow uses gamma 1.4 to approximate Acrobat's grayscale
-  // preflight. Black remains full spot ink; white remains no spot ink.
-  const lut = Uint8Array.from({ length: 256 }, (_, value) => Math.round(255 * (value / 255) ** gamma));
+  // Explicit gamma remains available for old callers, but production defaults
+  // to the supplied Adobe RGB -> Dot Gain 15% preflight profile conversion.
+  const legacy = gamma === undefined ? null
+    : Uint8Array.from({ length: 256 }, (_, value) => Math.round(255 * (value / 255) ** gamma));
   for (let i = 0, j = 0; j < gray.length; i += components, j++) {
-    const value = components === 1 ? data[i]
-      : Math.round((data[i] * 299 + data[i + 1] * 587 + data[i + 2] * 114) / 1000);
-    gray[j] = lut[value];
+    if (legacy) {
+      const value = components === 1 ? data[i]
+        : Math.round((data[i] * 299 + data[i + 1] * 587 + data[i + 2] * 114) / 1000);
+      gray[j] = legacy[value];
+    } else {
+      // Untagged DeviceGray is assigned the destination Dot Gain profile by
+      // the fixup; it must not receive a second RGB tone conversion.
+      gray[j] = components === 1 ? data[i] : profileGray(data[i], data[i + 1], data[i + 2]);
+    }
   }
   return gray;
 }
@@ -98,8 +112,8 @@ function imageJobs(document) {
 }
 
 async function buildIridesseDocuments(artBytes, maskBytes, opts = {}) {
-  const { gamma = 1.4, decodePixels = browserDecodePixels, onProgress } = opts;
-  if (!Number.isFinite(gamma) || gamma <= 0) throw new Error('Mask gamma must be a positive number.');
+  const { gamma, decodePixels = browserDecodePixels, onProgress } = opts;
+  if (gamma !== undefined && (!Number.isFinite(gamma) || gamma <= 0)) throw new Error('Mask gamma must be a positive number.');
   const art = await PDFDocument.load(artBytes);
   const mask = await PDFDocument.load(maskBytes);
   const artPages = art.getPages(), maskPages = mask.getPages();
