@@ -1,7 +1,7 @@
 // Follow the supplied Acrobat workflow: White spot mask underneath the
 // original artwork, with the artwork on a CMYK-named layer set to overprint.
 // The CMYK layer name does not convert or re-encode the artwork's images.
-import { PDFDocument, PDFName, PDFDict, PDFRawStream, PDFRef, PDFArray, PDFString, StandardFonts, rgb } from 'pdf-lib';
+import { PDFDocument, PDFName, PDFDict, PDFRawStream, PDFRef, PDFArray, PDFString, StandardFonts, rgb, decodePDFRawStream } from 'pdf-lib';
 import pako from 'pako';
 import { profileGray } from './maskColorProfile.mjs';
 
@@ -111,6 +111,48 @@ function imageJobs(document) {
   return jobs;
 }
 
+// Tokenize content without mistaking text, names, or comments for operators.
+// Batcher emits external image XObjects; inline images need a separate parser.
+function imageOverprintContent(text, resources, gsName) {
+  const tokens = []; let i = 0;
+  while (i < text.length) {
+    if (/\s/.test(text[i])) { i++; continue; }
+    const start = i;
+    if (text[i] === '%') { while (i < text.length && !/[\r\n]/.test(text[i])) i++; continue; }
+    if (text[i] === '(') {
+      let depth = 1; i++;
+      while (i < text.length && depth) {
+        if (text[i] === '\\') { i += 2; continue; }
+        if (text[i] === '(') depth++;
+        if (text[i] === ')') depth--;
+        i++;
+      }
+    } else if (text[i] === '<' && text[i + 1] !== '<') {
+      i++; while (i < text.length && text[i] !== '>') i++; i++;
+    } else if ('[]<>{}'.includes(text[i])) { i++; }
+    else {
+      if (text[i] === '/') i++;
+      while (i < text.length && !/[\s()[\]<>{}/%]/.test(text[i])) i++;
+      if (i === start) i++;
+    }
+    tokens.push({ start, end: i, value: text.slice(start, i) });
+  }
+  const edits = [];
+  const xobjects = resources.lookupMaybe(PDFName.of('XObject'), PDFDict);
+  for (let n = 0; n < tokens.length; n++) {
+    const token = tokens[n], name = tokens[n - 1];
+    if (token.value === 'BI') throw new Error('Inline artwork images are unsupported; export image XObjects before combining.');
+    if (token.value !== 'Do' || !name?.value.startsWith('/')) continue;
+    const decodedName = name.value.slice(1).replace(/#([\da-f]{2})/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
+    const image = xobjects?.lookup(PDFName.of(decodedName));
+    if (image instanceof PDFRawStream && image.dict.lookup(PDFName.of('Subtype'))?.toString() === '/Image') {
+      edits.push({ start: name.start, end: token.end, replacement: `q ${gsName} gs ${text.slice(name.start, token.end)} Q` });
+    }
+  }
+  for (const edit of edits.reverse()) text = text.slice(0, edit.start) + edit.replacement + text.slice(edit.end);
+  return text;
+}
+
 async function buildIridesseDocuments(artBytes, maskBytes, opts = {}) {
   const { gamma, decodePixels = browserDecodePixels, onProgress } = opts;
   if (gamma !== undefined && (!Number.isFinite(gamma) || gamma <= 0)) throw new Error('Mask gamma must be a positive number.');
@@ -154,7 +196,7 @@ async function buildIridesseDocuments(artBytes, maskBytes, opts = {}) {
   const embedded = await art.embedPages(maskPages);
   const layer = name => actx.register(actx.obj({ Type: 'OCG', Name: PDFString.of(name), Intent: ['View', 'Design'] }));
   const cmykLayer = layer('CMYK'), spotLayer = layer(SPOT_NAME);
-  const overprint = actx.register(actx.obj({ Type: 'ExtGState', op: true, OP: true, OPM: 1 }));
+  const overprint = actx.register(actx.obj({ Type: 'ExtGState', op: true, OP: false, OPM: 1 }));
   artPages.forEach((page, i) => {
     page.node.normalize();
     // jsPDF shares one resource dictionary across all pages. Each page needs
@@ -170,9 +212,28 @@ async function buildIridesseDocuments(artBytes, maskBytes, opts = {}) {
     sub('XObject').set(PDFName.of('FoilMask'), embedded[i].ref);
     sub('Properties').set(PDFName.of('FoilSpot'), spotLayer);
     sub('Properties').set(PDFName.of('FoilArt'), cmykLayer);
-    sub('ExtGState').set(PDFName.of('FoilOP'), overprint);
+    const gs = sub('ExtGState');
+    const gsName = gs.uniqueKey('FoilImageOP');
+    gs.set(gsName, overprint);
+    // Scope overprint to image draws. A page-wide state also changes cut lines,
+    // registration marks and text, unlike the supplied Acrobat image fixup.
+    const contents = page.node.Contents();
+    const streams = contents instanceof PDFArray ? contents.asArray() : [contents];
+    const text = streams.map(ref => {
+      const stream = actx.lookup(ref);
+      const bytes = stream instanceof PDFRawStream ? decodePDFRawStream(stream).decode() : stream.getUnencodedContents();
+      let text = '';
+      for (let offset = 0; offset < bytes.length; offset += 16384) {
+        text += String.fromCharCode(...bytes.subarray(offset, offset + 16384));
+      }
+      return text;
+    }).join('\n');
+    const changed = imageOverprintContent(text, resources, gsName.toString());
+    // Content bytes use PDF's byte encoding, not UTF-8.
+    const bytes = Uint8Array.from(changed, c => c.charCodeAt(0));
+    page.node.set(PDFName.of('Contents'), actx.obj([actx.register(actx.flateStream(bytes))]));
     page.node.wrapContentStreams(
-      actx.register(actx.stream('q /OC /FoilSpot BDC /FoilMask Do EMC Q\nq /OC /FoilArt BDC /FoilOP gs\n')),
+      actx.register(actx.stream('q /OC /FoilSpot BDC /FoilMask Do EMC Q\nq /OC /FoilArt BDC\n')),
       actx.register(actx.stream('\nEMC Q\n')),
     );
   });
