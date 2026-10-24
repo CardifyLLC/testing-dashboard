@@ -7,6 +7,7 @@ import React, { useState, useRef, useEffect, createContext, useContext } from 'r
 import { jsPDF } from 'jspdf';
 import { Upload, FileText, Settings, Download, Layers, X, Grid, Image as ImageIcon, RefreshCw, ArrowRight, ArrowLeft, ZoomIn, ZoomOut, Move, RotateCcw, Eye, Printer, Save, FolderOpen, Trash2, RotateCw, Layout, GripVertical, Hand, MousePointer2, AlignCenterVertical, Scissors, ImagePlus, Images, Sparkles, Calendar, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
 import BeautifulExportModal from './BeautifulExportModal';
+import { FOIL_CONFIG, buildStockPages, sheetDimensions, stockExportParts } from '../services/batcherStock.mjs';
 import { REFERENCE_LAYOUT, gridPosition } from '../services/batcherLayout.mjs';
 import { buildIridesseFiles, SPOT_NAME } from '../services/iridesseCombine.mjs';
 import { fetchPaidOrdersForBatcher, fetchOrderById, getOrderImageUrl as getAdminOrderImageUrl, updateOrderCardData, updateOrderCardImages } from '../services/orderService';
@@ -145,7 +146,7 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
   const [currentCustomerIndex, setCurrentCustomerIndex] = useState(0);
 
   // Config State - Always starts with INITIAL_CONFIG
-  const [config, setConfig] = useState(INITIAL_CONFIG);
+  const [stockConfigs, setStockConfigs] = useState({ standard: INITIAL_CONFIG, foil: FOIL_CONFIG });
 
   // --- Effects ---
 
@@ -234,82 +235,6 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
   };
 
   // --- Logic ---
-  const getActiveSheetDims = () => {
-    let width, height;
-    if (config.sheetSize === 'custom') {
-      width = config.customSheetWidth;
-      height = config.customSheetHeight;
-    } else {
-      const paper = PAPER_SIZES[config.sheetSize] || PAPER_SIZES['12x18'];
-      width = paper.width;
-      height = paper.height;
-    }
-    const short = Math.min(width, height);
-    const long = Math.max(width, height);
-    if (config.orientation === 'landscape') {
-      return { width: long, height: short };
-    } else {
-      return { width: short, height: long };
-    }
-  };
-
-  const { width: PAGE_WIDTH_MM, height: PAGE_HEIGHT_MM } = getActiveSheetDims();
-  const cardsPerPage = config.gridCols * config.gridRows;
-
-  // Build pages that pack multiple orders onto the same sheet when there are empty slots.
-  // Each page is { customerName: string|null, entries: Array<{ card, index, customerName }> } where index is in `frontImages`.
-  // Multiple customers can share a sheet - each entry tracks its own customerName.
-  const buildCustomerPages = (cards, perPage) => {
-    if (!Array.isArray(cards) || cards.length === 0 || !perPage || perPage <= 0) return [];
-
-    const NO_CUSTOMER = '__NO_CUSTOMER__';
-    const order = [];
-    const byCustomer = new Map();
-
-    cards.forEach((card, index) => {
-      const rawName = typeof card?.customerName === 'string' ? card.customerName.trim() : '';
-      const key = rawName ? rawName : NO_CUSTOMER;
-      if (!byCustomer.has(key)) {
-        byCustomer.set(key, []);
-        order.push(key);
-      }
-      byCustomer.get(key).push({ card, index, customerName: key === NO_CUSTOMER ? null : key });
-    });
-
-    const orderedKeys = order.filter(k => k !== NO_CUSTOMER);
-    if (byCustomer.has(NO_CUSTOMER)) orderedKeys.push(NO_CUSTOMER);
-
-    const pages = [];
-    let currentPage = { customerName: null, entries: [] };
-
-    orderedKeys.forEach((key) => {
-      const entries = byCustomer.get(key) || [];
-
-      entries.forEach((entry) => {
-        // If current page is full, push it and start a new one
-        if (currentPage.entries.length >= perPage) {
-          pages.push(currentPage);
-          currentPage = { customerName: null, entries: [] };
-        }
-
-        // Add this card to the current page
-        currentPage.entries.push(entry);
-
-        // Set the page's customerName to the first customer on the page (for header display)
-        if (currentPage.entries.length === 1) {
-          currentPage.customerName = entry.customerName;
-        }
-      });
-    });
-
-    // Push the last page if it has any entries
-    if (currentPage.entries.length > 0) {
-      pages.push(currentPage);
-    }
-
-    return pages;
-  };
-
   // Get unique customers from displayed cards (frontImages) - defined before customerPages for filtering
   const uniqueCustomers = React.useMemo(() => {
     const customers = [];
@@ -341,13 +266,22 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
         const customerCards = frontImages.filter(
           card => includedCustomers.includes(card.customerName || 'Unknown Customer')
         );
-        return buildCustomerPages(customerCards, cardsPerPage);
+        return buildStockPages(customerCards, stockConfigs, frontImages);
       }
       // If only one customer, show all cards
-      return buildCustomerPages(frontImages, cardsPerPage);
+      return buildStockPages(frontImages, stockConfigs);
     },
-    [frontImages, cardsPerPage, currentCustomer, currentCustomerIndex, uniqueCustomers, mergeNextOrder]
+    [frontImages, stockConfigs, currentCustomer, currentCustomerIndex, uniqueCustomers, mergeNextOrder]
   );
+
+  const activeStock = customerPages[previewPage]?.stock || 'standard';
+  const config = stockConfigs[activeStock];
+  const setConfig = value => setStockConfigs(previous => ({
+    ...previous,
+    [activeStock]: typeof value === 'function' ? value(previous[activeStock]) : value,
+  }));
+  const { width: PAGE_WIDTH_MM, height: PAGE_HEIGHT_MM } = sheetDimensions(config);
+  const cardsPerPage = config.gridCols * config.gridRows;
 
   const totalPages = Math.max(1, customerPages.length);
 
@@ -502,8 +436,8 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
     setConfig(prev => ({ ...prev, [key]: newValue }));
   };
 
-  const getConfigNum = (key) => {
-    const val = parseFloat(config[key]);
+  const getConfigNum = (key, layout = config) => {
+    const val = parseFloat(layout[key]);
     return isNaN(val) ? 0 : val;
   };
 
@@ -966,6 +900,7 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
                   : getCachedFrontUrl(getOrderImageUrl(frontUrl)),
                 file: null,
                 customBack: backUrl ? getOrderImageUrl(backUrl) : null,
+                finish: card.finish,
                 spotMask: card.silverMask ? getOrderImageUrl(card.silverMask) : undefined,
                 customerName: customerName,
                 orderId: order.id,
@@ -1125,8 +1060,12 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
 
     if (isLastPage && hasEmptySlots && !mergeNextOrder) {
       // On last page with empty slots - merge next order to fill them
+      const anchor = customerPages[previewPage]?.entries[0]?.card;
+      const included = [currentCustomer, uniqueCustomers[currentCustomerIndex + 1]];
+      const mergedPages = buildStockPages(frontImages.filter(card => included.includes(card.customerName || 'Unknown Customer')), stockConfigs, frontImages);
       setMergeNextOrder(true);
-      // Stay on same page to see slots being filled
+      // Additional standard sheets can shift a foil sheet's page number.
+      setPreviewPage(Math.max(0, mergedPages.findIndex(page => page.entries.some(entry => entry.card === anchor))));
     } else {
       // Navigate to next order (show only that order)
       setCurrentCustomerIndex(prev => prev + 1);
@@ -1184,6 +1123,7 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
         id: img.id,
         data: isPartnerImage(img.url) ? img.url : await urlToBase64(img.url),
         partnerOrderId: img.partnerOrderId,
+        finish: img.finish,
         customerName: img.customerName,
         customBackData: isPartnerImage(img.customBack) ? img.customBack : img.customBack ? await urlToBase64(img.customBack) : undefined,
         customBackIsNull: img.customBack === null,
@@ -1192,9 +1132,10 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
       const backBase64 = backImage ? await urlToBase64(backImage) : null;
       const overlayBase64 = templateOverlay ? await urlToBase64(templateOverlay) : null;
       const projectData = {
-        version: '2.8',
+        version: '2.9',
         date: new Date().toISOString(),
-        config,
+        config: stockConfigs.standard,
+        foilConfig: stockConfigs.foil,
         backImage: backBase64,
         templateOverlay: overlayBase64,
         frontImages: frontsBase64
@@ -1224,11 +1165,12 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
       try {
         const data = JSON.parse(event.target.result);
         if (!data.config || !Array.isArray(data.frontImages)) throw new Error("Invalid project file");
-        setConfig({ ...INITIAL_CONFIG, ...data.config });
+        setStockConfigs({ standard: { ...INITIAL_CONFIG, ...data.config }, foil: { ...FOIL_CONFIG, ...data.foilConfig } });
         setFrontImages(data.frontImages.map(img => ({
           id: img.id || Math.random().toString(36),
           url: img.data,
           partnerOrderId: img.partnerOrderId,
+          finish: img.finish,
           customerName: img.customerName,
           customBack: img.customBackIsNull ? null : (img.customBackData || undefined),
           spotMask: img.spotMaskData || undefined,
@@ -1302,9 +1244,7 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
     const currentCustomerName = customerPages?.[previewPage]?.customerName;
     // If there's no customer context on this page, just export all (no prompt needed)
     if (!currentCustomerName) {
-      if (mode === 'mask') generateSpotMaskPDF();
-      else if (mode === 'iridesse') generateIridessePDF();
-      else generatePDF();
+      generatePrintSets(mode, customerPages);
       return;
     }
     setExportScopeModal({
@@ -1333,19 +1273,21 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
     const { mode, selection, customerName } = exportScopeModal;
     closeExportScopeModal();
 
-    let pagesOverride;
-    if (selection === 'customer' && customerName) {
-      const scopedCards = frontImages.filter(c => (c?.customerName || '').trim() === String(customerName).trim());
-      pagesOverride = buildCustomerPages(scopedCards, cardsPerPage);
-    }
-
-    if (mode === 'mask') generateSpotMaskPDF(pagesOverride);
-    else if (mode === 'iridesse') generateIridessePDF(pagesOverride);
-    else generatePDF(pagesOverride);
+    const scopedCards = selection === 'customer' && customerName
+      ? frontImages.filter(c => (c?.customerName || '').trim() === String(customerName).trim())
+      : frontImages;
+    generatePrintSets(mode, buildStockPages(scopedCards, stockConfigs, frontImages));
   };
 
   // --- PDF GENERATION: Main Artwork (chunked for large orders) ---
   const generatePDF = async (pagesOverride, opts = {}) => {
+    const pages = pagesOverride || customerPages;
+    if (!pages.length) return;
+    const config = pages[0].config;
+    if (pages.some(page => page.stock !== pages[0].stock)) throw new Error('Stocks must be exported separately.');
+    const { width: PAGE_WIDTH_MM, height: PAGE_HEIGHT_MM } = sheetDimensions(config);
+    const cardsPerPage = config.gridCols * config.gridRows;
+    const getConfigNum = key => Number(config[key]) || 0;
     const partnerIds=[...new Set((pagesOverride || customerPages).flatMap(page=>(page.entries || []).map(entry=>entry.card?.partnerOrderId)).filter(Boolean))];
     try {
       await checkTeamAccess();
@@ -1375,7 +1317,6 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
       const cols = getConfigNum('gridCols');
       const printCutLines = config.printCutLines;
 
-      const pages = pagesOverride || customerPages;
       const pageCount = pages.length;
       const chunkCount = Math.max(1, Math.ceil(pageCount / MAX_SHEETS_PER_FILE));
       const totalSteps = Math.max(1, pageCount * cardsPerPage * 2);
@@ -1416,7 +1357,7 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
           // --- Front Page ---
           const pageImages = (pages[p]?.entries || []).map(e => e.card);
 
-          if (config.showRegMarks) drawRegistrationBar(doc, false);
+          if (config.showRegMarks) drawRegistrationBar(doc, false, config);
 
           const customerName = pages[p]?.customerName;
           if (customerName) {
@@ -1463,7 +1404,7 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
 
           if (hasAnyBacks) {
             doc.addPage([PAGE_WIDTH_MM, PAGE_HEIGHT_MM], config.orientation);
-            if (config.showRegMarks) drawRegistrationBar(doc, true);
+            if (config.showRegMarks) drawRegistrationBar(doc, true, config);
 
             for (let i = 0; i < pageImages.length; i++) {
               const card = pageImages[i];
@@ -1566,6 +1507,13 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
 
   // --- PDF Generation: Spot Mask Only (chunked, With Sync Blanks) ---
   const generateSpotMaskPDF = async (pagesOverride, opts = {}) => {
+    const pages = pagesOverride || customerPages;
+    if (!pages.length) return;
+    const config = pages[0].config;
+    if (pages.some(page => page.stock !== pages[0].stock)) throw new Error('Stocks must be exported separately.');
+    const { width: PAGE_WIDTH_MM, height: PAGE_HEIGHT_MM } = sheetDimensions(config);
+    const cardsPerPage = config.gridCols * config.gridRows;
+    const getConfigNum = key => Number(config[key]) || 0;
     setGenerating(true);
     setGenerationProgress(0);
     setGenerationLabel('Exporting mask PDF');
@@ -1584,7 +1532,6 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
       const gVert = getConfigNum('gapVertical');
       const cols = getConfigNum('gridCols');
 
-      const pages = pagesOverride || customerPages;
       const pageCount = pages.length;
       const chunkCount = Math.max(1, Math.ceil(pageCount / MAX_SHEETS_PER_FILE));
 
@@ -1609,7 +1556,7 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
 
           const pageImages = (pages[p]?.entries || []).map(e => e.card);
 
-          if (config.showRegMarks && !opts.collect) drawRegistrationBar(doc, false);
+          if (config.showRegMarks && !opts.collect) drawRegistrationBar(doc, false, config);
 
           const customerName = pages[p]?.customerName;
           if (customerName && !opts.collect) {
@@ -1684,53 +1631,62 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
   };
 
 
-  // One art/mask pair at a time bounds memory for large exports.
-  const generateIridessePDF = async (pagesOverride) => {
-    if (iridesseBusy.current) return;
+  const generatePrintSets = async (mode, pages) => {
+    if (iridesseBusy.current || !pages.length) return;
+    const parts = stockExportParts(pages, mode);
+    if (!parts.length) { alert('There are no foil cards in this selection.'); return; }
+    const missingMask = pages.flatMap(page => page.entries).some(({ card }) =>
+      String(card.finish || '').includes('silver') && !card.spotMask);
+    if (missingMask) { alert('A Spot Foil card is missing its mask. Add the mask before printing.'); return; }
     iridesseBusy.current = true;
     setGenerating(true);
     setGenerationStartedAt(Date.now());
     setGenerationProgress(0);
     try {
-      const pages = pagesOverride || customerPages;
-      const parts = Math.ceil(pages.length / 20);
-      for (let i = 0; i < parts; i++) {
+      const { default: JSZip } = await import('jszip');
+      for (let i = 0; i < parts.length; i++) {
         await checkTeamAccess();
-        const chunk = pages.slice(i * 20, (i + 1) * 20);
-        const artParts = [], maskParts = [];
-        await generatePDF(chunk, { collect: artParts });
-        await generateSpotMaskPDF(chunk, { collect: maskParts });
-        if (artParts.length !== 1 || maskParts.length !== 1) throw new Error('Art or mask export is incomplete.');
-        setGenerationLabel(`Building Iridesse ${SPOT_NAME} layer (${i + 1}/${parts})`);
-        const { combinedPdf, whiteMaskPdf, previewPdf } = await buildIridesseFiles(artParts[0], maskParts[0], {
-          onProgress: (done, total) =>
-            setGenerationProgress(Math.round(done / Math.max(1, total) * 100)),
-        });
-        const partSuffix = parts > 1 ? `-part${i + 1}` : '';
-        setGenerationLabel(`Packaging Iridesse PDFs (${i + 1}/${parts})`);
-        const { default: JSZip } = await import('jszip');
         const zip = new JSZip();
-        zip.file(`Combined_card-sheet-${LOCKED_TARGET_DPI}dpi${partSuffix}_${SPOT_NAME}.pdf`, combinedPdf);
-        zip.file(`card-sheet-SPOT-MASK${partSuffix}_${SPOT_NAME}.pdf`, whiteMaskPdf);
-        zip.file(`PREVIEW-ONLY_card-sheet${partSuffix}_${SPOT_NAME}-overlay.pdf`, previewPdf);
-        // One download keeps the companion mask from being blocked by the
-        // browser's automatic multiple-download protection.
+        const partSuffix = parts.length > 1 ? '-part' + (i + 1) : '';
+        for (const group of parts[i]) {
+          const folder = group.stock === 'foil' ? 'Foil' : 'Standard';
+          const artParts = [], maskParts = [];
+          if (mode !== 'mask') await generatePDF(group.pages, { collect: artParts });
+          if (mode === 'mask' || (mode === 'iridesse' && group.stock === 'foil')) {
+            await generateSpotMaskPDF(group.pages, { collect: maskParts });
+          }
+          if (mode === 'iridesse' && group.stock === 'foil') {
+            if (artParts.length !== 1 || maskParts.length !== 1) throw new Error('Art or mask export is incomplete.');
+            setGenerationLabel('Building foil ' + SPOT_NAME + ' layer');
+            const { combinedPdf, whiteMaskPdf, previewPdf } = await buildIridesseFiles(artParts[0], maskParts[0], {
+              onProgress: (done, total) => setGenerationProgress(Math.round(done / Math.max(1, total) * 100)),
+            });
+            zip.file(folder + '/Combined_card-sheet-1200dpi' + partSuffix + '_' + SPOT_NAME + '.pdf', combinedPdf);
+            zip.file(folder + '/card-sheet-SPOT-MASK' + partSuffix + '_' + SPOT_NAME + '.pdf', whiteMaskPdf);
+            zip.file(folder + '/PREVIEW-ONLY_card-sheet' + partSuffix + '_' + SPOT_NAME + '-overlay.pdf', previewPdf);
+          } else {
+            const files = mode === 'mask' ? maskParts : artParts;
+            if (files.length !== 1) throw new Error('PDF export is incomplete.');
+            zip.file(folder + '/card-sheet-' + (mode === 'mask' ? 'SPOT-MASK' : '1200dpi') + partSuffix + '.pdf', files[0]);
+          }
+        }
+        setGenerationLabel('Packaging print sets');
         const blob = await zip.generateAsync({ type: 'blob', compression: 'STORE' });
         await checkTeamAccess();
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = url;
-        link.download = `Iridesse_card-sheet-${LOCKED_TARGET_DPI}dpi${partSuffix}_${SPOT_NAME}.zip`;
+        link.download = 'Batcher-' + mode + '-1200dpi' + partSuffix + '.zip';
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
         setTimeout(() => URL.revokeObjectURL(url), 30_000);
-        if (i < parts - 1) await new Promise(r => setTimeout(r, 1500));
+        if (i < parts.length - 1) await new Promise(r => setTimeout(r, 1500));
       }
       setGenerationProgress(100);
     } catch (err) {
-      console.error('Iridesse PDF Error', err);
-      alert(`Failed to build Iridesse file: ${err.message}`);
+      console.error('Print set export failed', err);
+      alert('Failed to export print sets: ' + err.message);
     } finally {
       iridesseBusy.current = false;
       setGenerationLabel('');
@@ -1739,7 +1695,9 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
     }
   };
 
-  const drawRegistrationBar = (doc, isBackPage) => {
+  const drawRegistrationBar = (doc, isBackPage, config) => {
+    const { width: PAGE_WIDTH_MM, height: PAGE_HEIGHT_MM } = sheetDimensions(config);
+    const getConfigNum = key => Number(config[key]) || 0;
     doc.setFillColor(0, 0, 0);
     const regX = getConfigNum('regMarkX');
     const regY = getConfigNum('regMarkY');
@@ -1791,6 +1749,7 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
 
   // Provide context value (after all handlers are defined)
   const contextValue = {
+    activeStock,
     config,
     setConfig,
     frontImages,
@@ -1830,8 +1789,8 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
     ? frontImages.filter(c => (c?.customerName || '').trim() === String(exportModalCustomerName).trim()).length
     : 0;
   const exportModalTotalCount = frontImages.length;
-  const exportModalCustomerSheets = exportModalCustomerCount ? Math.ceil(exportModalCustomerCount / cardsPerPage) : 0;
-  const exportModalTotalSheets = exportModalTotalCount ? Math.ceil(exportModalTotalCount / cardsPerPage) : 0;
+  const exportModalCustomerSheets = React.useMemo(() => buildStockPages(frontImages.filter(c => (c?.customerName || '').trim() === String(exportModalCustomerName).trim()), stockConfigs).length, [frontImages, stockConfigs, exportModalCustomerName]);
+  const exportModalTotalSheets = React.useMemo(() => buildStockPages(frontImages, stockConfigs).length, [frontImages, stockConfigs]);
 
   // If showSidebar is false, render Dashboard layout
   if (!showSidebar) {
@@ -2143,7 +2102,7 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
 
                       <div className="p-6 border-b border-slate-100">
                         <h2 className="font-bold flex items-center gap-2 text-slate-700 mb-6">
-                          <Settings className="w-4 h-4" /> Layout Settings
+                          <Settings className="w-4 h-4" /> {activeStock === 'foil' ? 'Foil Layout' : 'Standard Layout'}
                         </h2>
 
                         <div className="space-y-6">
@@ -2792,17 +2751,17 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
                   {totalPages > 1 && (
                     <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 bg-slate-700/90 backdrop-blur shadow-sm border border-slate-600 rounded-full px-4 py-2 flex items-center gap-4">
                       <button
-                        disabled={previewPage === 0}
+                        aria-label="Previous sheet" disabled={previewPage === 0}
                         onClick={() => setPreviewPage(p => Math.max(0, p - 1))}
                         className="text-slate-300 hover:text-blue-600 disabled:opacity-30"
                       >
                         <ArrowLeft className="w-4 h-4" />
                       </button>
                       <span className="text-xs font-semibold text-slate-300">
-                        Sheet {previewPage + 1} of {totalPages}
+                        {activeStock === 'foil' ? 'Foil' : 'Standard'} · Sheet {previewPage + 1} of {totalPages}
                       </span>
                       <button
-                        disabled={previewPage >= totalPages - 1}
+                        aria-label="Next sheet" disabled={previewPage >= totalPages - 1}
                         onClick={() => setPreviewPage(p => Math.min(totalPages - 1, p + 1))}
                         className="text-slate-300 hover:text-blue-600 disabled:opacity-30"
                       >
@@ -3399,7 +3358,7 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
               <div className="flex-1 overflow-y-auto">
                 <div className="p-5 border-b border-slate-100">
                   <h2 className="font-bold flex items-center gap-2 text-slate-700 mb-4">
-                    <Settings className="w-4 h-4" /> Layout Settings
+                    <Settings className="w-4 h-4" /> {activeStock === 'foil' ? 'Foil Layout' : 'Standard Layout'}
                   </h2>
 
                   <div className="space-y-4">
@@ -3989,17 +3948,17 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
             {totalPages > 1 && (
               <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 bg-white/90 backdrop-blur shadow-sm border border-slate-300 rounded-full px-4 py-2 flex items-center gap-4">
                 <button
-                  disabled={previewPage === 0}
+                  aria-label="Previous sheet" disabled={previewPage === 0}
                   onClick={() => setPreviewPage(p => Math.max(0, p - 1))}
                   className="text-slate-600 hover:text-blue-600 disabled:opacity-30"
                 >
                   <ArrowLeft className="w-4 h-4" />
                 </button>
                 <span className="text-xs font-semibold text-slate-700">
-                  Sheet {previewPage + 1} of {totalPages}
+                  {activeStock === 'foil' ? 'Foil' : 'Standard'} · Sheet {previewPage + 1} of {totalPages}
                 </span>
                 <button
-                  disabled={previewPage >= totalPages - 1}
+                  aria-label="Next sheet" disabled={previewPage >= totalPages - 1}
                   onClick={() => setPreviewPage(p => Math.min(totalPages - 1, p + 1))}
                   className="text-slate-600 hover:text-blue-600 disabled:opacity-30"
                 >
@@ -4311,6 +4270,7 @@ export const BatcherPROSidebar = () => {
   if (!ctx) return null;
 
   const {
+    activeStock,
     config,
     setConfig,
     frontImages,
@@ -4351,7 +4311,7 @@ export const BatcherPROSidebar = () => {
     <div className="flex-1 overflow-y-auto" style={{ color: 'var(--text-primary)' }}>
       <div className="p-6" style={{ borderBottom: '1px solid var(--border-color)' }}>
         <h2 className="font-bold flex items-center gap-2 mb-6" style={{ color: 'var(--text-primary)' }}>
-          <Settings className="w-4 h-4" /> Layout Settings
+          <Settings className="w-4 h-4" /> {activeStock === 'foil' ? 'Foil Layout' : 'Standard Layout'}
         </h2>
 
         <div className="space-y-8">
