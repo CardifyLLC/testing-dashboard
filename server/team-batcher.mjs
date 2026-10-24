@@ -14,7 +14,11 @@ function project(order) {
   return {
     id:order.id, customer_name:order.customer_name, created_at:order.created_at, quantity:order.quantity, status:order.status,
     metadata:{proMode:metadata.proMode === true,pro_mode:metadata.pro_mode === true,...(partner ? {partnerCartId:true} : {})},
-    card_data:partner ? [] : array(order.card_data).map((card,index)=>Object.fromEntries(CARD_FIELDS.filter(field=>typeof card?.[field]==='string' && card[field]).map(field=>[field,ref(order,'card',index,field)]))),
+    card_data:partner ? [] : array(order.card_data).map((card,index)=>({
+      ...Object.fromEntries(CARD_FIELDS.filter(field=>typeof card?.[field]==='string' && card[field]).map(field=>[field,ref(order,'card',index,field)])),
+      // Finish is needed to select stock, even when a foil mask is missing.
+      ...(['standard','rainbow','gloss','silver','silver-rainbow','silver-gloss'].includes(card?.finish) ? {finish:card.finish} : {}),
+    })),
     // Keep a synthetic filename so the existing positional back/mask parser works.
     card_images:partner ? [] : array(order.card_images).map((source,index)=>typeof source === 'string' && source ? ref(order,'image',index,/mask/i.test(source) ? 'mask.png' : /(?:\/back\.(?:jpeg|jpg|png)$|[_-]back\.)/i.test(source) ? 'back.png' : 'front.png') : ''),
   };
