@@ -1,0 +1,32 @@
+.iridesse-tool { max-width: 1040px; margin: 0 auto; padding: 12px 0 40px; color: var(--text-primary, #fff); }
+.iridesse-tool header { margin-bottom: 28px; }
+.iridesse-tool h1 { font-size: clamp(24px, 3vw, 32px); font-weight: 700; display: flex; align-items: center; gap: 12px; margin: 8px 0 12px; }
+.iridesse-tool h2 { display: flex; gap: 10px; align-items: center; font-size: 20px; font-weight: 600; }
+.iridesse-tool p, .iridesse-upload > span:not(:first-child) { line-height: 1.65; color: var(--text-secondary, #94a3b8); }
+.iridesse-tool .iridesse-eyebrow { color: #60a5fa; font-size: 12px; letter-spacing: .12em; font-weight: 700; }
+.iridesse-upload-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+.iridesse-upload { display: flex; flex-direction: column; gap: 12px; min-width: 0; padding: 24px; border: 1px dashed #475569; border-radius: 12px; background: var(--bg-card, #161b2c); cursor: pointer; }
+.iridesse-upload:focus-within { outline: 2px solid #60a5fa; outline-offset: 3px; }
+.iridesse-upload-title { display: flex; gap: 10px; align-items: center; font-size: 18px; font-weight: 600; }
+.iridesse-upload input { width: 100%; font-size: 13px; color: #94a3b8; }
+.iridesse-upload input::file-selector-button { border: 0; padding: 8px 12px; border-radius: 6px; background: #26334b; color: #fff; margin-right: 10px; cursor: pointer; }
+.iridesse-upload strong { overflow-wrap: anywhere; font-weight: 500; color: #bfdbfe; }
+.iridesse-upload small { color: #94a3b8; }
+.iridesse-guidance { margin: 20px 0; padding: 18px 20px; background: #111c30; border-radius: 10px; }
+.iridesse-guidance p { margin-top: 5px; font-size: 14px; }
+.iridesse-actions, .iridesse-downloads { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; margin: 22px 0 12px; }
+.iridesse-actions label { display: flex; flex-direction: column; gap: 8px; font-size: 14px; margin-right: auto; }
+.iridesse-tool select, .iridesse-tool button, .iridesse-downloads a { border: 1px solid #334155; border-radius: 8px; background: #182237; color: #fff; padding: 11px 16px; min-height: 44px; font: inherit; }
+.iridesse-tool button, .iridesse-downloads a { display: inline-flex; align-items: center; justify-content: center; gap: 8px; text-decoration: none; }
+.iridesse-tool .iridesse-primary { background: #2563eb; border-color: #3b82f6; color: #fff; font-weight: 600; }
+.iridesse-tool button:disabled { opacity: .45; cursor: not-allowed; }
+.iridesse-tool :is(button, a, select, summary):focus-visible { outline: 2px solid #93c5fd; outline-offset: 3px; }
+.iridesse-tool .iridesse-note { font-size: 13px; }
+.iridesse-tool .iridesse-error { padding: 16px; margin-top: 20px; color: #fecaca; background: #321a23; border: 1px solid #7f1d1d; border-radius: 8px; }
+.iridesse-tool .iridesse-status { margin-top: 20px; color: #bfdbfe; }
+.iridesse-result { margin-top: 24px; border: 1px solid #235347; border-radius: 12px; padding: 24px; background: #0c201f; }
+.iridesse-result h2 { color: #6ee7b7; margin-bottom: 12px; }
+.iridesse-result details { margin-top: 22px; font-size: 14px; color: #cbd5e1; }
+.iridesse-result summary { cursor: pointer; }
+.iridesse-result ul { padding: 14px 20px 0; max-height: 220px; overflow: auto; }
+@media (max-width: 680px) { .iridesse-upload-grid { grid-template-columns: 1fr; } .iridesse-upload { padding: 18px; } .iridesse-downloads a { width: 100%; } }

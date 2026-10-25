@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import * as XLSX from 'xlsx';
 import { Coins } from 'lucide-react';
 import { fetchOrders, fetchAllOrders, fetchOrdersForExport, updateOrderStatus } from '../services/orderService';
@@ -23,6 +23,8 @@ import ShipmentTracking from './ShipmentTracking';
 import AgentAccess from './AgentAccess';
 import TeamAccess from './TeamAccess';
 import useOrderLink from '../hooks/useOrderLink';
+
+const IridessePdfCombiner = lazy(() => import('./IridessePdfCombiner'));
 
 const Dashboard = () => {
     const [orders, setOrders] = useState([]);
@@ -326,6 +328,11 @@ const Dashboard = () => {
                             >
                                 <span>🎴</span> Batcher PRO
                             </div>
+                            <button type="button" className={`nav-item ${activeView === 'iridesse' ? 'active' : ''}`}
+                                onClick={() => { setActiveView('iridesse'); setMobileMenuOpen(false); }}
+                                style={{ width: '100%', font: 'inherit', textAlign: 'left' }}>
+                                <span>📄</span> Iridesse PDF Combiner
+                            </button>
                         </div>
                     </aside>
 
@@ -401,7 +408,9 @@ const Dashboard = () => {
                         </header>
 
                         <div className="content-area">
-                            {loading ? (
+                            {activeView === 'iridesse' ? (
+                                <Suspense fallback={<p role="status">Loading PDF combiner…</p>}><IridessePdfCombiner /></Suspense>
+                            ) : loading ? (
                                 <div className="loading">Loading orders...</div>
                             ) : (
                                 <>
