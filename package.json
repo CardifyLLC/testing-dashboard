@@ -9,7 +9,8 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "worker:order-pdfs": "node scripts/generate-order-pdfs.mjs"
+    "worker:order-pdfs": "node scripts/generate-order-pdfs.mjs",
+    "test:order-pdfs": "node --test scripts/order-pdf-document.test.mjs scripts/order-pdf-worker.test.mjs scripts/order-pdf-downloads.test.mjs scripts/batcher-layout.test.mjs scripts/download-order-image.test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.86.0",
