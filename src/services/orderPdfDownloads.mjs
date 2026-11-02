@@ -30,7 +30,11 @@ export async function downloadOrderPdfs(generations, {
             if (!response.ok) throw new Error(`Could not download PDF for order #${generation.order_id.slice(0, 8)} (HTTP ${response.status}).`);
             const blob = await response.blob();
             if ((await blob.slice(0, 5).text()) !== '%PDF-') throw new Error('The downloaded file is not a valid PDF. Please retry.');
-            const suffix = urls.length > 1 ? `-part-${index + 1}-of-${urls.length}` : '';
+            // New worker files identify their stock; retain legacy part names for
+            // already-generated orders so old downloads continue to work.
+            const stockFile = paths[index].split('/').pop().match(/^(standard|foil)(-part-\d+-of-\d+)?\.pdf$/);
+            const suffix = stockFile ? `-${stockFile[1]}${stockFile[2] || ''}`
+                : urls.length > 1 ? `-part-${index + 1}-of-${urls.length}` : '';
             await saveFile(blob, `order-${orderLabel(generation)}${suffix}.pdf`);
             completed += 1;
             onProgress({ completed, total });
