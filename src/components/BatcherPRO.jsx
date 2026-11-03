@@ -5,7 +5,8 @@ import { isPartnerOrder, isPartnerImage } from '../services/partnerArtwork.mjs';
 import { resolveOrderImage as resolveAdminOrderImage, partnerOrderRequest } from '../services/partnerOrders';
 import React, { useState, useRef, useEffect, createContext, useContext } from 'react';
 import { jsPDF } from 'jspdf';
-import { addPromosToPages, markPromosPrinted } from '../services/promoCards.mjs';
+import { addPromosToPages, createPromoBackRenderer, markPromosPrinted } from '../services/promoCards.mjs';
+import { supabase } from '../services/supabaseClient';
 import { Upload, FileText, Settings, Download, Layers, X, Grid, Image as ImageIcon, RefreshCw, ArrowRight, ArrowLeft, ZoomIn, ZoomOut, Move, RotateCcw, Eye, Printer, Save, FolderOpen, Trash2, RotateCw, Layout, GripVertical, Hand, MousePointer2, AlignCenterVertical, Scissors, ImagePlus, Images, Sparkles, Calendar, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
 import BeautifulExportModal from './BeautifulExportModal';
 import { FOIL_CONFIG, buildStockPages, sheetDimensions, stockExportParts } from '../services/batcherStock.mjs';
@@ -108,6 +109,15 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
   const [upscaleProgress, setUpscaleProgress] = useState({ completed: 0, total: 0, label: '' });
   const [previewPage, setPreviewPage] = useState(0);
   const [previewSide, setPreviewSide] = useState('front');
+  const [promoPreview, setPromoPreview] = useState(null);
+  const [promoPreviewRevision, setPromoPreviewRevision] = useState(0);
+  const renderPromoBack = React.useMemo(() => createPromoBackRenderer(), []);
+  const promoClient = React.useMemo(() => teamAccess ? { rpc: async (name, args) => {
+    const response = await dashboardAccessRequest('/api/promo-print', name === 'allocate_promo_run'
+      ? { action: 'allocate', orderId: args.p_order, stock: args.p_group, count: args.p_count, capacity: args.p_capacity }
+      : { action: 'printed', runId: args.p_run });
+    return { data: response.data, error: null };
+  } } : supabase, [teamAccess]);
   const [zoom, setZoom] = useState(1.0);
   const [autoFitZoom, setAutoFitZoom] = useState(true);
 
@@ -273,6 +283,53 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
       return buildStockPages(frontImages, stockConfigs);
     },
     [frontImages, stockConfigs, currentCustomer, currentCustomerIndex, uniqueCustomers, mergeNextOrder]
+  );
+
+  useEffect(() => {
+    if (!customerPages.length) return;
+    const controller = new AbortController();
+    const warnings = new Set();
+    addPromosToPages(promoClient, customerPages, {
+      renderBack: renderPromoBack,
+      signal: controller.signal,
+      onWarning: warning => warnings.add(warning),
+    }).then(pages => {
+      if (!controller.signal.aborted) setPromoPreview({
+        source: customerPages, client: promoClient, revision: promoPreviewRevision,
+        pages, warning: [...warnings].join(' '), error: '',
+      });
+    }).catch(error => {
+      if (!controller.signal.aborted) setPromoPreview({
+        source: customerPages, client: promoClient, revision: promoPreviewRevision,
+        pages: customerPages, warning: '', error: error.message || 'Could not load promo cards.',
+      });
+    });
+    return () => controller.abort();
+  }, [customerPages, promoClient, renderPromoBack, promoPreviewRevision]);
+
+  // Keep generated promos separate from editable customer artwork and saved projects.
+  const promoPreviewReady = promoPreview?.source === customerPages
+    && promoPreview?.client === promoClient && promoPreview?.revision === promoPreviewRevision;
+  const previewPages = promoPreviewReady ? promoPreview.pages : customerPages;
+  const promoCount = previewPages.reduce((count, page) => count + page.entries.filter(entry => entry.card.isPromo).length, 0);
+  const firstPromoPage = previewPages.findIndex(page => page.entries.some(entry => entry.card.isPromo));
+  const promoPreviewNotice = customerPages.length > 0 && (
+    <div className="batcher-promo-preview" data-testid="promo-preview-status">
+      <span role={promoPreviewReady && promoPreview.error ? 'alert' : 'status'} className={promoPreviewReady && (promoPreview.error || promoPreview.warning) ? 'promo-preview-warning' : ''}>
+        {!promoPreviewReady ? 'Loading promo preview…'
+          : promoPreview.error ? `Promo preview unavailable: ${promoPreview.error}`
+          : promoPreview.warning || (promoCount
+            ? `${promoCount} promo card${promoCount === 1 ? '' : 's'} on the final sheets. Use Back to check the QR codes.`
+            : 'No promo cards for this order.')}
+      </span>
+      {firstPromoPage >= 0 && !previewPages[previewPage]?.entries.some(entry => entry.card.isPromo) && (
+        <button type="button" onClick={() => setPreviewPage(firstPromoPage)}>View promo sheet</button>
+      )}
+      <button type="button" className="promo-preview-refresh"
+        disabled={!promoPreviewReady || generating} onClick={() => setPromoPreviewRevision(value => value + 1)}>
+        {promoPreviewReady && promoPreview.error ? 'Retry promo preview' : 'Refresh promos'}
+      </button>
+    </div>
   );
 
   const activeStock = customerPages[previewPage]?.stock || 'standard';
@@ -1652,13 +1709,7 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
     setGenerationStartedAt(Date.now());
     setGenerationProgress(0);
     try {
-      const promoClient = teamAccess ? { rpc: async (name, args) => {
-        const response = await dashboardAccessRequest('/api/promo-print', name === 'allocate_promo_run'
-          ? { action:'allocate', orderId:args.p_order, stock:args.p_group, count:args.p_count, capacity:args.p_capacity }
-          : { action:'printed', runId:args.p_run });
-        return { data:response.data, error:null };
-      } } : supabase;
-      pages = await addPromosToPages(promoClient, pages);
+      pages = await addPromosToPages(promoClient, pages, { renderBack: renderPromoBack });
       const parts = stockExportParts(pages, mode);
       if (!parts.length) throw new Error('There are no foil cards in this selection.');
       const { default: JSZip } = await import('jszip');
@@ -2058,6 +2109,8 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
                   </button>
                 </div>
               </header>
+
+              {promoPreviewNotice}
 
               {isUpscaling && (
                 <div className="bg-slate-950 border-b border-slate-800 px-4 py-3">
@@ -2912,7 +2965,7 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
                             const drawW = mmToPx(getConfigNum('cardWidth'));
                             const drawH = mmToPx(getConfigNum('cardHeight'));
 
-                            const pageEntry = customerPages[previewPage]?.entries?.[i];
+                            const pageEntry = previewPages[previewPage]?.entries?.[i];
                             const imageIndex = pageEntry?.index;
                             const cardData = pageEntry?.card;
 
@@ -2972,7 +3025,7 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
                                       src={image}
                                       onLoad={(e) => logImgInfo('front (preview-grid)', e.currentTarget)}
                                       className="w-full h-full object-cover"
-                                      alt=""
+                                      alt={cardData?.isPromo ? (previewSide === 'front' ? 'Promo card front' : 'Promo card QR back') : ''}
                                     />
                                   ) : (
                                     <div className="w-full h-full flex items-center justify-center text-xs text-slate-500">
@@ -2982,21 +3035,21 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
 
 
                                   {/* Spot Mask Badge */}
-                                  {previewSide === 'front' && cardData?.spotMask !== undefined && (
+                                  {previewSide === 'front' && !cardData?.isPromo && cardData?.spotMask !== undefined && (
                                     <div className="absolute top-5 right-1 bg-cyan-500 text-white text-[8px] px-1.5 py-0.5 rounded-sm shadow-sm z-20 pointer-events-none font-bold tracking-tight uppercase flex items-center gap-1">
                                       <Sparkles className="w-2 h-2" /> Spot
                                     </div>
                                   )}
 
                                   {/* Customer Name Badge */}
-                                  {cardData?.customerName && (
-                                    <div className="absolute bottom-0 left-0 right-0 bg-green-600/90 text-white text-[7px] px-1.5 py-0.5 rounded-t-sm shadow-sm z-20 pointer-events-none font-semibold truncate">
-                                      {cardData.customerName}
+                                  {cardData && (cardData.isPromo || cardData.customerName) && (
+                                    <div className={`absolute bottom-0 left-0 right-0 ${cardData.isPromo ? 'bg-violet-700/90' : 'bg-green-600/90'} text-white text-[7px] px-1.5 py-0.5 rounded-t-sm shadow-sm z-20 pointer-events-none font-semibold truncate`}>
+                                      {cardData.isPromo ? 'Promo · Free standard print' : cardData.customerName}
                                     </div>
                                   )}
 
                                   {/* Spot Mask Hover Preview */}
-                                  {previewSide === 'front' && cardData?.spotMask && (
+                                  {previewSide === 'front' && !cardData?.isPromo && cardData?.spotMask && (
                                     <OrderImage
                                       src={cardData.spotMask}
                                       className="absolute inset-0 w-full h-full object-cover opacity-0 group-hover:opacity-40 transition-opacity z-15 pointer-events-none mix-blend-multiply"
@@ -3005,7 +3058,7 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
                                   )}
 
                                   {/* Spot Silver mask overlay (visible) */}
-                                  {previewSide === 'front' && cardData?.spotMask && (
+                                  {previewSide === 'front' && !cardData?.isPromo && cardData?.spotMask && (
                                     <div
                                       className="finish-silver"
                                       style={{
@@ -3016,7 +3069,7 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
                                   )}
 
                                   {/* Controls Overlay */}
-                                  {((previewSide === 'back' && showControls) || (previewSide === 'front' && cardData)) && (
+                                  {!cardData?.isPromo && ((previewSide === 'back' && showControls) || (previewSide === 'front' && cardData)) && (
                                     <div className="absolute inset-0 bg-black/70 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-2 z-30 p-2">
 
                                       {/* Front Controls */}
@@ -3315,6 +3368,8 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
             </button>
           </div>
         </header>
+
+        {promoPreviewNotice}
 
         {isUpscaling && (
           <div className="bg-slate-950 border-b border-slate-800 px-4 py-3">
@@ -4098,7 +4153,7 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
                       const drawW = mmToPx(getConfigNum('cardWidth'));
                       const drawH = mmToPx(getConfigNum('cardHeight'));
 
-                      const pageEntry = customerPages[previewPage]?.entries?.[i];
+                      const pageEntry = previewPages[previewPage]?.entries?.[i];
                       const imageIndex = pageEntry?.index;
                       const cardData = pageEntry?.card;
 
@@ -4162,7 +4217,7 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
                                   e.target.style.display = 'none';
                                 }}
                                 className="w-full h-full object-cover"
-                                alt=""
+                                alt={cardData?.isPromo ? (previewSide === 'front' ? 'Promo card front' : 'Promo card QR back') : ''}
                               />
                             ) : (
                               <div className="w-full h-full flex items-center justify-center text-xs text-slate-500">
@@ -4171,20 +4226,20 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
                             )}
 
 
-                            {previewSide === 'front' && cardData?.spotMask !== undefined && (
+                            {previewSide === 'front' && !cardData?.isPromo && cardData?.spotMask !== undefined && (
                               <div className="absolute top-5 right-1 bg-cyan-500 text-white text-[8px] px-1.5 py-0.5 rounded-sm shadow-sm z-20 pointer-events-none font-bold tracking-tight uppercase flex items-center gap-1">
                                 <Sparkles className="w-2 h-2" /> Spot
                               </div>
                             )}
 
                             {/* Customer Name Badge */}
-                            {cardData?.customerName && (
-                              <div className="absolute bottom-0 left-0 right-0 bg-green-600/90 text-white text-[7px] px-1.5 py-0.5 rounded-t-sm shadow-sm z-20 pointer-events-none font-semibold truncate">
-                                {cardData.customerName}
+                            {cardData && (cardData.isPromo || cardData.customerName) && (
+                              <div className={`absolute bottom-0 left-0 right-0 ${cardData.isPromo ? 'bg-violet-700/90' : 'bg-green-600/90'} text-white text-[7px] px-1.5 py-0.5 rounded-t-sm shadow-sm z-20 pointer-events-none font-semibold truncate`}>
+                                {cardData.isPromo ? 'Promo · Free standard print' : cardData.customerName}
                               </div>
                             )}
 
-                            {previewSide === 'front' && cardData?.spotMask && (
+                            {previewSide === 'front' && !cardData?.isPromo && cardData?.spotMask && (
                               <OrderImage
                                 src={cardData.spotMask}
                                 className="absolute inset-0 w-full h-full object-cover opacity-0 group-hover:opacity-40 transition-opacity z-15 pointer-events-none mix-blend-multiply"
@@ -4193,7 +4248,7 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
                             )}
 
                             {/* Spot Silver mask overlay (visible) */}
-                            {previewSide === 'front' && cardData?.spotMask && (
+                            {previewSide === 'front' && !cardData?.isPromo && cardData?.spotMask && (
                               <div
                                 className="finish-silver"
                                 style={{
@@ -4203,7 +4258,7 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
                               />
                             )}
 
-                            {((previewSide === 'back' && showControls) || (previewSide === 'front' && cardData)) && (
+                            {!cardData?.isPromo && ((previewSide === 'back' && showControls) || (previewSide === 'front' && cardData)) && (
                               <div className="absolute inset-0 bg-black/70 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-2 z-30 p-2">
                                 {previewSide === 'front' && cardData && (
                                   <div className="flex gap-1.5">

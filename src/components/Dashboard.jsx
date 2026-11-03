@@ -245,7 +245,14 @@ const Dashboard = () => {
                             >
                                 <span><Coins size={18} /></span> PRINTS Analytics
                             </div>
-                            <button className={`nav-item ${activeView === 'promo-cards' ? 'active' : ''}`} onClick={() => { setActiveView('promo-cards'); setMobileMenuOpen(false); }}>Promo Cards</button>
+                            <button
+                                type="button"
+                                className={`nav-item ${activeView === 'promo-cards' ? 'active' : ''}`}
+                                onClick={() => { setActiveView('promo-cards'); setMobileMenuOpen(false); }}
+                                style={{ width: '100%', font: 'inherit', textAlign: 'left' }}
+                            >
+                                <span aria-hidden="true">🎁</span> Promo Cards
+                            </button>
                             <div
                                 className={`nav-item ${activeView === 'emailer' ? 'active' : ''}`}
                                 onClick={() => { setActiveView('emailer'); setMobileMenuOpen(false); }}
