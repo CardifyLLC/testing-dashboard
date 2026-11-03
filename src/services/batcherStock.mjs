@@ -33,21 +33,23 @@ export function buildStockPages(cards, configs, allCards = cards) {
   const customers = new Map();
   for (const card of cards) {
     const name = card.customerName?.trim() || null;
-    if (!customers.has(name)) customers.set(name, []);
-    customers.get(name).push({ card, index: indices.get(card), customerName: name });
+    const key = card.orderId || name;
+    if (!customers.has(key)) customers.set(key, []);
+    customers.get(key).push({ card, index: indices.get(card), customerName: name });
   }
   const ordered = [...customers.keys()].filter(Boolean);
   if (customers.has(null)) ordered.push(null);
-  const entries = ordered.flatMap(name => customers.get(name));
   const pages = [];
   for (const stock of ['standard', 'foil']) {
     const config = configs[stock];
     const perPage = Math.floor(Number(config.gridCols)) * Math.floor(Number(config.gridRows));
     if (!Number.isSafeInteger(perPage) || perPage < 1) continue;
-    const stockEntries = entries.filter(entry => cardStock(entry.card) === stock);
+    for (const key of ordered) {
+    const stockEntries = customers.get(key).filter(entry => cardStock(entry.card) === stock);
     for (let i = 0; i < stockEntries.length; i += perPage) {
       const pageEntries = stockEntries.slice(i, i + perPage);
       pages.push({ stock, config, customerName: pageEntries[0].customerName, entries: pageEntries });
+    }
     }
   }
   return pages;
