@@ -5,6 +5,7 @@ import { isPartnerOrder, isPartnerImage } from '../services/partnerArtwork.mjs';
 import { resolveOrderImage as resolveAdminOrderImage, partnerOrderRequest } from '../services/partnerOrders';
 import React, { useState, useRef, useEffect, createContext, useContext } from 'react';
 import { jsPDF } from 'jspdf';
+import { addPromosToPages, markPromosPrinted } from '../services/promoCards.mjs';
 import { Upload, FileText, Settings, Download, Layers, X, Grid, Image as ImageIcon, RefreshCw, ArrowRight, ArrowLeft, ZoomIn, ZoomOut, Move, RotateCcw, Eye, Printer, Save, FolderOpen, Trash2, RotateCw, Layout, GripVertical, Hand, MousePointer2, AlignCenterVertical, Scissors, ImagePlus, Images, Sparkles, Calendar, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
 import BeautifulExportModal from './BeautifulExportModal';
 import { FOIL_CONFIG, buildStockPages, sheetDimensions, stockExportParts } from '../services/batcherStock.mjs';
@@ -892,7 +893,7 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
                 ? (card.originalBackUrl || card.originalBack || card.backUrl)
                 : card.backUrl;
               if (!frontUrl) return;
-              const copies = partnerOrder ? card.quantity : 1;
+              const copies = Math.max(1, Number(card.quantity) || 1) * Math.max(1, Number(order.deck_quantity || order.metadata?.deckQuantity) || 1);
               for (let copy=0;copy<copies;copy++) newCards.push({
                 id: Math.random().toString(36).substr(2, 9),
                 url: isProModeOrder
@@ -971,7 +972,7 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
               }
             }
 
-            newCards.push({
+            for (let copy=0; copy<Math.max(1, Number(order.deck_quantity || order.metadata?.deckQuantity) || 1); copy++) newCards.push({
               id: Math.random().toString(36).substr(2, 9),
               url: getCachedFrontUrl(getOrderImageUrl(front)),
               file: null,
@@ -1390,7 +1391,7 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
                 }
               } catch (e) {
                 if (opts.collect) throw new Error('Front artwork could not be loaded. Iridesse export stopped.');
-                if (pageImages[i]?.partnerOrderId) throw new Error('Partner front artwork could not be loaded. Refresh the order before printing.');
+                if (pageImages[i]?.partnerOrderId || pageImages[i]?.isPromo) throw new Error('Front artwork could not be loaded. Refresh the order before printing.');
                 console.error(e);
               }
             }
@@ -1444,7 +1445,7 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
                     aliasId = cacheKey;
                   } catch (e) {
                     if (opts.collect) throw new Error('Custom back artwork could not be loaded. Iridesse export stopped.');
-                    if (card.partnerOrderId) throw new Error('Partner back artwork could not be loaded. Refresh the order before printing.');
+                    if (card.partnerOrderId || card.isPromo) throw new Error('Back artwork could not be loaded. Refresh the order before printing.');
                     console.error('Custom back failed to load (skipping this back).', e);
                     sourceToUse = null;
                   }
@@ -1590,6 +1591,16 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
           // Same rule as the art export, per sheet, so page counts always line up
           if (backImage || pageImages.some(img => img?.customBack)) {
             doc.addPage([PAGE_WIDTH_MM, PAGE_HEIGHT_MM], config.orientation);
+            // Opaque white underprint protects QR contrast on reflective stock.
+            for (let i=0;i<pageImages.length;i++) {
+              const card=pageImages[i];
+              if (!card?.isPromo || !card.spotMask) continue;
+              const front=gridPosition(i%cols,Math.floor(i/cols),cWidth,cHeight,mLeft,mTop,gHorz,gVert);
+              const x=config.flipBackPage ? front.x+Number(config.backShiftX||0) : PAGE_WIDTH_MM-front.x-cWidth+Number(config.backShiftX||0);
+              const y=config.flipBackPage ? PAGE_HEIGHT_MM-front.y-cHeight+Number(config.backShiftY||0) : front.y+Number(config.backShiftY||0);
+              const image=await processImageForPrintLocked(card.spotMask,cWidth,cHeight,false,0.92);
+              doc.addImage(image,'JPEG',x,y,cWidth,cHeight,'promo-opaque-mask','FAST');
+            }
           }
           stepsCompleted++;
           setGenerationProgress(Math.round((stepsCompleted / totalSteps) * 100));
@@ -1633,8 +1644,6 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
 
   const generatePrintSets = async (mode, pages) => {
     if (iridesseBusy.current || !pages.length) return;
-    const parts = stockExportParts(pages, mode);
-    if (!parts.length) { alert('There are no foil cards in this selection.'); return; }
     const missingMask = pages.flatMap(page => page.entries).some(({ card }) =>
       String(card.finish || '').includes('silver') && !card.spotMask);
     if (missingMask) { alert('A Spot Foil card is missing its mask. Add the mask before printing.'); return; }
@@ -1643,6 +1652,15 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
     setGenerationStartedAt(Date.now());
     setGenerationProgress(0);
     try {
+      const promoClient = teamAccess ? { rpc: async (name, args) => {
+        const response = await dashboardAccessRequest('/api/promo-print', name === 'allocate_promo_run'
+          ? { action:'allocate', orderId:args.p_order, stock:args.p_group, count:args.p_count, capacity:args.p_capacity }
+          : { action:'printed', runId:args.p_run });
+        return { data:response.data, error:null };
+      } } : supabase;
+      pages = await addPromosToPages(promoClient, pages);
+      const parts = stockExportParts(pages, mode);
+      if (!parts.length) throw new Error('There are no foil cards in this selection.');
       const { default: JSZip } = await import('jszip');
       for (let i = 0; i < parts.length; i++) {
         await checkTeamAccess();
@@ -1673,6 +1691,7 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
         setGenerationLabel('Packaging print sets');
         const blob = await zip.generateAsync({ type: 'blob', compression: 'STORE' });
         await checkTeamAccess();
+        if (mode !== 'mask') for (const group of parts[i]) for (const page of group.pages) await markPromosPrinted(promoClient, page.promoRunId);
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = url;
