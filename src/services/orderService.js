@@ -170,15 +170,15 @@ export const fetchAffiliateOrders = async () => {
 export const fetchPaidOrdersForBatcher = async () => {
     const { data, error } = await ordersClient
         .from('orders')
-        .select('id, customer_name, status, created_at, quantity, card_images, card_data, metadata')
-        .in('status', ['paid', 'PAID', 'processing', 'PROCESSING'])
+        .select('id, customer_name, status, created_at, quantity, deck_quantity, card_images, card_data, metadata, promo_reprint_requested')
+        .or('status.in.(paid,PAID,processing,PROCESSING),promo_reprint_requested.eq.true')
         .order('created_at', { ascending: false });
 
     if (error) {
         console.error('Error fetching paid orders:', error);
         throw error;
     }
-    const orders = (data || []).filter(order => order.metadata?.productType !== 'cardstock' && (String(order.status).toLowerCase()==='paid' || isPartnerOrder(order)));
+    const orders = (data || []).filter(order => order.metadata?.productType !== 'cardstock' && (String(order.status).toLowerCase()==='paid' || isPartnerOrder(order) || (order.promo_reprint_requested && ['shipped','completed','processing'].includes(String(order.status).toLowerCase()))));
     const result = [];
     for (let i=0;i<orders.length;i+=4) {
         result.push(...await Promise.all(orders.slice(i,i+4).map(order => loadPartnerArtwork(order,false))));
