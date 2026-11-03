@@ -2,6 +2,8 @@ import { isPartnerOrder } from '../src/services/partnerArtwork.mjs';
 import { createClient } from '@supabase/supabase-js';
 import { buildOrderPdfParts, cardsFromOrder, generateOrderPdf, prepareOrderImage, TARGET_DPI, IMAGE_QUALITY } from './order-pdf-document.mjs';
 import { downloadOrderImage } from './download-order-image.mjs';
+import { addOrderPromos } from './order-pdf-promos.mjs';
+import { markPromosPrinted } from '../src/services/promoCards.mjs';
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -107,7 +109,7 @@ const findJobs = async () => {
   // can share nearly identical timestamps, so ordering the jobs themselves does
   // not reliably prioritize the newest customer orders.
   const { data: recentOrders, error: ordersError } = await supabase.from('orders')
-    .select('id, created_at, metadata').ilike('status', 'paid')
+    .select('id, created_at, metadata').or('status.ilike.paid,promo_reprint_requested.eq.true')
     .order('created_at', { ascending: false }).limit(1000);
   if (ordersError) throw ordersError;
   if (!recentOrders?.length) return [];
@@ -150,9 +152,10 @@ const processJob = async job => {
   try {
     const { data: order, error } = await supabase.from('orders').select('*').eq('id', job.order_id).single();
     if (error) throw error;
-    if (String(order.status || '').toLowerCase() !== 'paid') throw new Error('Order is no longer paid.');
-    const cards = cardsFromOrder(order, SUPABASE_URL);
-    if (!cards.length) throw new Error('Order has no printable cards.');
+    if (String(order.status || '').toLowerCase() !== 'paid' && !(order.promo_reprint_requested && ['shipped','processing','completed'].includes(String(order.status).toLowerCase()))) throw new Error('Order is no longer printable.');
+    const customerCards = cardsFromOrder(order, SUPABASE_URL);
+    if (!customerCards.length) throw new Error('Order has no printable cards.');
+    const { cards, runIds } = await addOrderPromos(supabase, order, customerCards);
     const parts = buildOrderPdfParts(cards);
     const totalParts = parts.length;
     const storagePaths = [];
@@ -181,11 +184,16 @@ const processJob = async job => {
         completed_parts: partIndex + 1,
       });
     }
+    for (const runId of runIds) await markPromosPrinted(supabase, runId);
     await updateJob(order.id, {
       status: 'completed', storage_path: storagePaths[0], storage_paths: storagePaths,
       processed_cards: cards.length, total_cards: cards.length, total_parts: totalParts, completed_parts: totalParts,
       completed_at: new Date().toISOString(), error_message: null, repair_required: false,
     });
+    if (order.promo_reprint_requested) {
+      const { error: resetError } = await supabase.from('orders').update({promo_reprint_requested:false}).eq('id',order.id);
+      if (resetError) throw resetError;
+    }
     console.log(`Completed ${order.id}.`);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

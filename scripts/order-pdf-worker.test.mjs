@@ -49,10 +49,14 @@ test('automatic worker uploads separate stock PDFs and completes only after both
         export function createClient() {
           const f = globalThis.orderPdfWorkerFixture;
           return {
+            async rpc(name) {
+              if (name !== 'allocate_promo_run') throw new Error('Unexpected promo operation');
+              return { data: { cards: [] }, error: null };
+            },
             from(table) {
               let changes, excludeCompleted = false;
               const q = {};
-              for (const name of ['select','ilike','order','limit','in','eq','lt']) q[name] = () => q;
+              for (const name of ['select','ilike','or','order','limit','in','eq','lt']) q[name] = () => q;
               q.neq = (name, value) => { excludeCompleted = name === 'status' && value === 'completed'; return q; };
               q.update = value => { changes = value; return q; };
               q.maybeSingle = async () => ({ data: { ...f.job }, error: null });
