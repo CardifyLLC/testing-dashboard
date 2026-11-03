@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { PGlite } from '@electric-sql/pglite';
 import { pgcrypto } from '@electric-sql/pglite/contrib/pgcrypto';
-import { promoSlots, promoBackSvg } from '../src/services/promoCards.mjs';
+import { promoSlots, promoBackSvg, addPromosToPages, createPromoBackRenderer } from '../src/services/promoCards.mjs';
 import { buildStockPages, FOIL_CONFIG } from '../src/services/batcherStock.mjs';
 import { addOrderPromos } from './order-pdf-promos.mjs';
 import { buildOrderPdfParts, generateOrderPdf } from './order-pdf-document.mjs';
@@ -21,6 +21,83 @@ test('QR back contains uppercase URL QR and fixed quiet-zone layout', async () =
   const svg=await promoBackSvg('ABCDEFGHJKM2','data:image/png;base64,AAAA');
   assert.match(svg,/width="340"/); assert.match(svg,/S&amp;H still applies/);
   await assert.rejects(()=>promoBackSvg('INVALID','data:image/png;base64,AAAA'));
+});
+
+function stubPromoCanvas(t) {
+  const original = Object.getOwnPropertyDescriptor(globalThis, 'document');
+  Object.defineProperty(globalThis, 'document', { configurable: true, value: {
+    createElement: () => ({ getContext: () => ({ fillRect() {} }), toDataURL: () => 'data:image/png;base64,opaque-mask' }),
+  } });
+  t.after(() => { if (original) Object.defineProperty(globalThis, 'document', original); else delete globalThis.document; });
+}
+
+test('Batcher preview and export share final-sheet promos without editing customer cards or marking printed', async t => {
+  stubPromoCanvas(t);
+  const cards = Array.from({ length: 30 }, (_, i) => ({ id: `card-${i}`, orderId: 'qa', customerName: 'QA', finish: i < 26 ? 'standard' : 'foil' }));
+  const pages = buildStockPages(cards, { standard: { gridCols: 6, gridRows: 3 }, foil: FOIL_CONFIG });
+  const calls = [], rendered = [];
+  const client = { rpc: async (name, args) => {
+    calls.push([name, args]);
+    assert.equal(name, 'allocate_promo_run');
+    assert.equal(args.p_count, args.p_group === 'standard' ? 26 : 4);
+    return { data: { runId: args.p_group, backFile: 'back.png', cards: Array.from({ length: promoSlots(args.p_count, args.p_capacity) }, (_, i) => ({
+      id: `${args.p_group}-${i}`, code: `${args.p_group}-${i}`, frontFile: 'front.png',
+    })) } };
+  } };
+  const renderBack = createPromoBackRenderer(async code => { rendered.push(code); return `qr:${code}`; });
+  const preview = await addPromosToPages(client, pages, { renderBack });
+  assert.deepEqual(preview.map(page => page.entries.length), [18, 18, 9]);
+  assert.deepEqual(pages.map(page => page.entries.length), [18, 8, 4], 'preview leaves editable source pages unchanged');
+  assert.deepEqual(preview.map(page => page.entries.filter(e => e.card.isPromo).length), [0, 10, 5]);
+  assert.equal(preview[1].entries[0].card, cards[18], 'customer card references and indices stay intact');
+  assert.equal(preview[1].entries[0].index, 18);
+  const exported = await addPromosToPages(client, pages, { renderBack });
+  assert.deepEqual(exported, preview, 'export uses the same identities and QR backs');
+  assert.deepEqual(await addPromosToPages(client, preview, { renderBack }), preview, 'reusing prepared pages never duplicates promos');
+  assert.equal(rendered.length, 15, 'QR artwork is reused between preview and export');
+  assert.equal(new Set(preview.flatMap(p => p.entries.filter(e => e.card.isPromo).map(e => e.card.customBack))).size, 15);
+  assert.ok(preview[2].entries.filter(e => e.card.isPromo).every(e => e.card.spotMask));
+  assert.equal(calls.length, 6);
+});
+
+test('Batcher leaves unavailable and non-order slots blank, and reports missing artwork', async t => {
+  stubPromoCanvas(t);
+  const configs = { standard: { gridCols: 6, gridRows: 3 }, foil: FOIL_CONFIG };
+  const pages = buildStockPages([{ orderId: 'qa' }, { orderId: 'partner', partnerOrderId: 'partner' }, { id: 'upload' }], configs);
+  const calls = [], warnings = [];
+  const client = { rpc: async (name, args) => { calls.push(args.p_order); return { data: { cards: [], warning: 'No active promo artwork or shared back; slots left blank.' } }; } };
+  const result = await addPromosToPages(client, pages, { onWarning: value => warnings.push(value) });
+  assert.deepEqual(calls, ['qa'], 'partner and manual uploads do not issue customer promo codes');
+  assert.deepEqual(result.map(page => page.entries.length), [1, 1, 1]);
+  assert.match(warnings[0], /No active promo/);
+});
+
+test('obsolete preview requests stop before rendering more QR backs', async t => {
+  stubPromoCanvas(t);
+  const controller = new AbortController();
+  const pages = buildStockPages([{ orderId: 'qa' }], { standard: { gridCols: 2, gridRows: 1 }, foil: FOIL_CONFIG });
+  let renders = 0;
+  const client = { rpc: async () => {
+    controller.abort();
+    return { data: { cards: [{ id: 'promo', code: 'code', frontFile: 'front' }], backFile: 'back' } };
+  } };
+  await assert.rejects(addPromosToPages(client, pages, { signal: controller.signal, renderBack: async () => { renders++; } }), { name: 'AbortError' });
+  assert.equal(renders, 0);
+  assert.equal(pages[0].entries.length, 1);
+});
+
+test('QR preview cache retries failed artwork and refreshes changed templates', async () => {
+  let calls = 0;
+  const renderBack = createPromoBackRenderer(async (code, url) => {
+    if (++calls === 1) throw new Error('Artwork unavailable');
+    return `${code}:${url}`;
+  });
+  await assert.rejects(renderBack('code', 'back'), /Artwork unavailable/);
+  const [a, b] = await Promise.all([renderBack('code', 'back'), renderBack('code', 'back')]);
+  assert.equal(a, b);
+  assert.equal(calls, 2);
+  assert.equal(await renderBack('code', 'replacement'), 'code:replacement');
+  assert.equal(calls, 3);
 });
 
 test('worker renders mixed customer/promo fronts and QR backs without adding sheets', async () => {
@@ -63,6 +140,10 @@ test('database lifecycle, claims, checkout holds, refunds and access controls', 
     const run=await rpc('allocate_promo_run',[order,'standard',1,18]);
     assert.equal(run.cards.length,17); assert.equal(new Set(run.cards.map(c=>c.code)).size,17);
     assert.deepEqual(await rpc('allocate_promo_run',[order,'standard',1,18]),run,'retry reuses codes');
+    assert.equal((await q('SELECT printed_at FROM promo_runs WHERE id=$1',[run.runId]))[0].printed_at,null,'preview allocation does not mark the run printed');
+    const previewReport=await rpc('promo_report',[]);
+    assert.equal(previewReport.designs[0].printed,0);
+    assert.equal(previewReport.designs[0].activated,0);
     assert.equal((await rpc('claim_promo_code',[run.cards[0].code,a,null])).state,'invalid');
     await rpc('mark_promo_printed',[run.runId]);
     await q("UPDATE orders SET status='shipped' WHERE id=$1",[order]);
@@ -142,4 +223,3 @@ test('database lifecycle, claims, checkout holds, refunds and access controls', 
     assert.deepEqual((await q('SELECT promo_expires_at FROM orders WHERE id=$1',[order]))[0].promo_expires_at,originalDeadline,'migration is safe to rerun without changing existing deadlines');
   } finally { await db.close(); }
 });
-
