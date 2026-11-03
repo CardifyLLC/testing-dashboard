@@ -53,6 +53,7 @@ test('database lifecycle, claims, checkout holds, refunds and access controls', 
       CREATE TABLE storage.objects(id uuid,bucket_id text);
     `);
     await db.exec(await readFile(new URL('../database/migration-promo-cards.sql',import.meta.url),'utf8'));
+    await db.exec(await readFile(new URL('../database/migration-promo-shipping-expiry.sql',import.meta.url),'utf8'));
     const q=async(sql,args=[]) => (await db.query(sql,args)).rows;
     const rpc=async(name,args) => (await q(`SELECT ${name}(${args.map((_,i)=>'$'+(i+1)).join(',')}) AS value`,args))[0].value;
     const owner=randomUUID(), a=randomUUID(), b=randomUUID(), c=randomUUID(), order=randomUUID();
@@ -65,6 +66,8 @@ test('database lifecycle, claims, checkout holds, refunds and access controls', 
     assert.equal((await rpc('claim_promo_code',[run.cards[0].code,a,null])).state,'invalid');
     await rpc('mark_promo_printed',[run.runId]);
     await q("UPDATE orders SET status='shipped' WHERE id=$1",[order]);
+    const originalDeadline=(await q('SELECT expires_at FROM promo_codes WHERE code=$1',[run.cards[0].code]))[0].expires_at;
+    assert.deepEqual((await q('SELECT promo_expires_at FROM orders WHERE id=$1',[order]))[0].promo_expires_at,originalDeadline);
     assert.equal((await rpc('claim_promo_code',[run.cards[0].code,owner,null])).state,'own_card');
     assert.equal((await rpc('claim_promo_code',[run.cards[0].code,a,null])).state,'success');
     assert.equal((await rpc('claim_promo_code',[run.cards[0].code,b,null])).state,'redeemed');
@@ -88,8 +91,10 @@ test('database lifecycle, claims, checkout holds, refunds and access controls', 
     assert.equal((await q('SELECT status FROM promo_codes WHERE code=$1',[run.cards[4].code]))[0].status,'void');
     assert.equal((await q('SELECT status FROM promo_codes WHERE code=$1',[run.cards[0].code]))[0].status,'redeemed');
     const next=await rpc('allocate_promo_run',[order,'standard',1,18]); assert.notEqual(next.runId,run.runId);
+    await db.exec('UPDATE promo_settings SET expiry_months=24');
     await rpc('mark_promo_printed',[next.runId]);
     assert.equal((await q('SELECT status FROM promo_codes WHERE code=$1',[next.cards[0].code]))[0].status,'active','shipped replacement activates only after export');
+    assert.deepEqual((await q('SELECT expires_at FROM promo_codes WHERE code=$1',[next.cards[0].code]))[0].expires_at,originalDeadline,'replacement preserves the first shipping deadline even after settings change');
     assert.equal((await q('SELECT promo_reprint_requested FROM orders WHERE id=$1',[order]))[0].promo_reprint_requested,false);
     await q("UPDATE orders SET status='cancelled' WHERE id=$1",[order]);
     assert.equal((await rpc('claim_promo_code',[next.cards[0].code,c,null])).state,'invalid');
@@ -117,5 +122,24 @@ test('database lifecycle, claims, checkout holds, refunds and access controls', 
     await assert.rejects(()=>q('SELECT * FROM promo_codes'));
     await assert.rejects(()=>rpc('claim_promo_code',[next.cards[0].code,c,null]));
     await db.exec('RESET ROLE');
+
+    const lateOrder=randomUUID();
+    await q('INSERT INTO orders(id,user_id) VALUES($1,$2)',[lateOrder,owner]);
+    await q("UPDATE orders SET status='shipped' WHERE id=$1",[lateOrder]);
+    await q("UPDATE orders SET promo_shipped_at=now()-interval '2 years',promo_expires_at=now()-interval '1 day' WHERE id=$1",[lateOrder]);
+    const lateRun=await rpc('allocate_promo_run',[lateOrder,'standard',1,18]);
+    await rpc('mark_promo_printed',[lateRun.runId]);
+    assert.equal((await rpc('claim_promo_code',[lateRun.cards[0].code,owner,null])).state,'expired','a late export cannot renew an expired shipping window');
+    await q("UPDATE orders SET status='processing' WHERE id=$1",[lateOrder]);
+    await q("UPDATE orders SET status='shipped' WHERE id=$1",[lateOrder]);
+    assert.equal((await rpc('claim_promo_code',[lateRun.cards[0].code,owner,null])).state,'expired','repeated shipping transitions cannot extend expiry');
+
+    const legacyOrder=randomUUID();
+    await q("INSERT INTO orders(id,user_id,status) VALUES($1,$2,'completed')",[legacyOrder,owner]);
+    const legacyRun=await rpc('allocate_promo_run',[legacyOrder,'standard',1,18]);
+    await assert.rejects(()=>rpc('mark_promo_printed',[legacyRun.runId]),/Original shipping date is missing/);
+    await db.exec(await readFile(new URL('../database/migration-promo-shipping-expiry.sql',import.meta.url),'utf8'));
+    assert.deepEqual((await q('SELECT promo_expires_at FROM orders WHERE id=$1',[order]))[0].promo_expires_at,originalDeadline,'migration is safe to rerun without changing existing deadlines');
   } finally { await db.close(); }
 });
+
