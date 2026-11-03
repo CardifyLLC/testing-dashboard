@@ -2,19 +2,20 @@ import { createDashboardAuthorization, DashboardAccessError as HttpError } from 
 import { orderMetadata, partnerCards } from '../src/services/partnerArtwork.mjs';
 
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
-const FIELDS = 'id,customer_name,created_at,quantity,status,payment_status,card_data,card_images,metadata';
+const FIELDS = 'id,customer_name,created_at,quantity,deck_quantity,status,payment_status,card_data,card_images,metadata,promo_reprint_requested';
 const CARD_FIELDS = ['frontUrl','backUrl','originalFrontUrl','originalBackUrl','originalFront','originalBack','silverMask'];
 const PAGE = 25;
 const fail = result => { if (result.error) throw new HttpError(503,'Batcher orders are unavailable. Please retry.'); return result.data; };
 const array = value => { if (typeof value === 'string') { try { value=JSON.parse(value); } catch { return []; } } return Array.isArray(value) ? value : []; };
-const ready = order => (String(order.status).toLowerCase()==='paid' || (String(order.status).toLowerCase()==='processing' && Boolean(orderMetadata(order).partnerCartId))) && !['refunded','failed','cancelled','canceled'].includes(String(order.payment_status).toLowerCase()) && orderMetadata(order).productType !== 'cardstock';
+const ready = order => (String(order.status).toLowerCase()==='paid' || (String(order.status).toLowerCase()==='processing' && Boolean(orderMetadata(order).partnerCartId)) || (order.promo_reprint_requested && ['shipped','completed','processing'].includes(String(order.status).toLowerCase()))) && !['refunded','failed','cancelled','canceled'].includes(String(order.payment_status).toLowerCase()) && orderMetadata(order).productType !== 'cardstock';
 const ref = (order,kind,index,field) => `team-artwork:${order.id}/${kind}/${index}/${field}`;
 function project(order) {
   const metadata=orderMetadata(order), partner=Boolean(metadata.partnerCartId);
   return {
-    id:order.id, customer_name:order.customer_name, created_at:order.created_at, quantity:order.quantity, status:order.status,
+    id:order.id, customer_name:order.customer_name, created_at:order.created_at, quantity:order.quantity, deck_quantity:order.deck_quantity, status:order.status,
     metadata:{proMode:metadata.proMode === true,pro_mode:metadata.pro_mode === true,...(partner ? {partnerCartId:true} : {})},
     card_data:partner ? [] : array(order.card_data).map((card,index)=>({
+      quantity: Math.max(1, Number(card.quantity) || 1),
       ...Object.fromEntries(CARD_FIELDS.filter(field=>typeof card?.[field]==='string' && card[field]).map(field=>[field,ref(order,'card',index,field)])),
       // Finish is needed to select stock, even when a foil mask is missing.
       ...(['standard','rainbow','gloss','silver','silver-rainbow','silver-gloss'].includes(card?.finish) ? {finish:card.finish} : {}),
@@ -55,7 +56,7 @@ export function createTeamBatcherHandler({createClient,env=process.env,fetchImpl
       if (!id) {
         if ([...params.keys()].some(key=>key!=='offset') || !/^\d{1,6}$/.test(params.get('offset') || '0')) throw new HttpError(400,'Invalid Batcher page.');
         const offset=Number(params.get('offset') || 0);
-        const orders=fail(await db.from('orders').select(FIELDS).in('status',['paid','PAID','processing','PROCESSING']).order('created_at',{ascending:false}).order('id').range(offset,offset+PAGE));
+        const orders=fail(await db.from('orders').select(FIELDS).or('status.in.(paid,PAID,processing,PROCESSING),promo_reprint_requested.eq.true').order('created_at',{ascending:false}).order('id').range(offset,offset+PAGE));
         await recheck();
         return send(200,{orders:orders.slice(0,PAGE).filter(ready).map(project),nextOffset:orders.length>PAGE ? offset+PAGE : null});
       }
