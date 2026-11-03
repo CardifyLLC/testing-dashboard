@@ -36,30 +36,54 @@ export async function renderPromoBack(code, url) {
     return canvas.toDataURL('image/png');
   } finally { URL.revokeObjectURL(objectUrl); }
 }
-export async function addPromosToPages(client, pages) {
+// Share rendered QR backs between the preview and export, without caching allocations.
+// Allocations are always rechecked so replacement runs and eligibility stay current.
+export function createPromoBackRenderer(renderBack = renderPromoBack, limit = 64) {
+  const cache = new Map();
+  return (code, url) => {
+    const key = JSON.stringify([code, url]);
+    if (cache.has(key)) return cache.get(key);
+    const pending = Promise.resolve().then(() => renderBack(code, url));
+    cache.set(key, pending);
+    if (cache.size > limit) cache.delete(cache.keys().next().value);
+    pending.catch(() => { if (cache.get(key) === pending) cache.delete(key); });
+    return pending;
+  };
+}
+
+export async function addPromosToPages(client, pages, { renderBack = renderPromoBack, onWarning, signal } = {}) {
+  signal?.throwIfAborted();
   const mask = document.createElement('canvas'); mask.width=16; mask.height=16;
   const maskContext=mask.getContext('2d'); maskContext.fillStyle='black'; maskContext.fillRect(0,0,16,16);
   const opaqueMask=mask.toDataURL('image/png');
-  const result = pages.map(page => ({ ...page, entries: [...page.entries] }));
+  const result = pages.map(page => ({ ...page, promoRunId: undefined, entries: page.entries.filter(e => !e.card.isPromo) }));
   const groups = new Map();
   for (const page of result) {
     const ids = [...new Set(page.entries.map(e => e.card.orderId).filter(Boolean))];
-    if (ids.length !== 1 || page.entries.some(e => !e.card.orderId)) continue;
+    if (ids.length !== 1 || page.entries.some(e => !e.card.orderId || e.card.partnerOrderId)) continue;
     const key = `${ids[0]}:${page.stock}`;
     if (!groups.has(key)) groups.set(key, { orderId: ids[0], stock: page.stock, count: 0, pages: [] });
     const group = groups.get(key); group.count += page.entries.length; group.pages.push(page);
   }
   for (const group of groups.values()) {
+    signal?.throwIfAborted();
     const last = group.pages.at(-1), capacity = last.config.gridCols * last.config.gridRows;
     const allocation = await allocatePromos(client, group.orderId, group.stock, group.count, capacity);
+    signal?.throwIfAborted();
+    if (allocation.warning) onWarning?.(allocation.warning);
     if (!allocation.cards?.length) continue;
     if (last.entries.length + allocation.cards.length !== capacity) throw new Error('Promo layout mismatch. Export the complete order.');
     last.promoRunId = allocation.runId;
-    for (const promo of allocation.cards) last.entries.push({ index: -1, customerName: last.customerName, card: {
-      id: promo.id, isPromo: true, url: promo.frontFile, customBack: await renderPromoBack(promo.code, allocation.backFile),
+    for (const promo of allocation.cards) {
+      signal?.throwIfAborted();
+      const customBack = await renderBack(promo.code, allocation.backFile);
+      signal?.throwIfAborted();
+      last.entries.push({ index: -1, customerName: last.customerName, card: {
+      id: promo.id, isPromo: true, url: promo.frontFile, customBack,
       orderId: group.orderId, customerName: last.customerName, finish: group.stock === 'foil' ? 'foil' : 'standard',
       ...(group.stock === 'foil' ? {spotMask:opaqueMask} : {}),
-    } });
+      } });
+    }
   }
   return result;
 }
