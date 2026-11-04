@@ -97,7 +97,7 @@ for (const [stock, finish, width, cols, left, top] of [
       assert.equal(placements.length, count);
       placements.forEach((block, i) => {
         const [translate, rotate, scale] = transforms(block);
-        const x = left + (i % cols) * 69.6;
+        const x = left + (i % cols) * (67 + 2.45);
         const yTop = top + Math.floor(i / cols) * 98.4;
         close(translate[4], pt(x + (side ? 67 : 0)));
         close(translate[5], pt(side ? yTop + 92 : 304.8 - yTop - 92));
@@ -127,7 +127,7 @@ test('foil pagination starts a new sheet after 9 cards; missing backs keep their
   assert.equal(pdf.getPageCount(), 3);
   assert.deepEqual(pdf.getPages().map(page => imageBlocks(page).length), [9, 8, 1]);
   const back = transforms(imageBlocks(pdf.getPage(1))[0])[0];
-  close(back[4], pt(10.6 + 69.6 + 67));
+  close(back[4], pt(10.6 + 67 + 2.45 + 67));
   close(back[5], pt(7.9 + 92));
 });
 
