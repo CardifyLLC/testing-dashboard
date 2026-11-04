@@ -131,9 +131,19 @@ export async function generateOrderPdf(order, part, fetchImage, onProgress = asy
   const font = await pdf.embedFont(StandardFonts.Helvetica);
   const imageCache = new Map();
   let processed = 0;
-  const embed = async urls => {
+  const embed = async (card, side) => {
+    const urls = card[side];
     const key = JSON.stringify(urls);
-    if (!imageCache.has(key)) imageCache.set(key, await pdf.embedJpg(await fetchImage(urls)));
+    if (!imageCache.has(key)) {
+      try {
+        imageCache.set(key, await pdf.embedJpg(await fetchImage(urls)));
+      } catch (error) {
+        // The worker sends a customer repair email for missing customer images.
+        // Keep missing stack artwork in the print team's error queue.
+        if (card.isPromo) throw new Error(`Promo ${side} artwork could not be prepared: ${error.message}`, { cause: error });
+        throw error;
+      }
+    }
     return imageCache.get(key);
   };
   const drawBar = (page, isBack) => {
@@ -163,7 +173,7 @@ export async function generateOrderPdf(order, part, fetchImage, onProgress = asy
     });
     for (let index = 0; index < sheet.length; index += 1) {
       const { x, y } = position(index);
-      frontPage.drawImage(await embed(sheet[index].front), { x, y, width: cardWidth, height: cardHeight });
+      frontPage.drawImage(await embed(sheet[index], 'front'), { x, y, width: cardWidth, height: cardHeight });
       drawCutLine(frontPage, x, y);
       processed += 1;
       if (processed % 6 === 0) await onProgress(processed);
@@ -177,7 +187,7 @@ export async function generateOrderPdf(order, part, fetchImage, onProgress = asy
         const { x, y } = position(index);
         // Short-edge duplex: reflect the front slot vertically and rotate its
         // own back 180 degrees, leaving empty back slots in place.
-        backPage.drawImage(await embed(card.back), {
+        backPage.drawImage(await embed(card, 'back'), {
           x: x + cardWidth, y: pageHeight - y, width: cardWidth, height: cardHeight, rotate: degrees(180),
         });
         drawCutLine(backPage, x, pageHeight - y - cardHeight);
