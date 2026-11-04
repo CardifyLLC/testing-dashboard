@@ -1,6 +1,6 @@
 import { degrees, PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import sharp from 'sharp';
-import { cardStock, FOIL_CONFIG, sheetDimensions } from '../src/services/batcherStock.mjs';
+import { cardStock, sheetDimensions } from '../src/services/batcherStock.mjs';
 
 export const TARGET_DPI = 1200;
 export const IMAGE_QUALITY = 50;
@@ -8,12 +8,19 @@ export const IMAGE_QUALITY = 50;
 export const ORDER_PDF_CONFIGS = Object.freeze({
   standard: Object.freeze({
     sheetSize: '12x18', orientation: 'landscape', gridCols: 6, gridRows: 3,
-    marginTop: 15.5, marginLeft: 9.7, gapHorizontal: 2.6, gapVertical: 6.4,
+    marginTop: 15.5, marginLeft: 9.7, gapHorizontal: 2.45, gapVertical: 6.4,
     cardWidth: 67, cardHeight: 92, targetDPI: TARGET_DPI,
     showRegMarks: true, regMarkWidth: 3.3, regMarkHeight: 60,
     regMarkX: 7, regMarkY: 60.4, printCutLines: true,
   }),
-  foil: FOIL_CONFIG,
+  foil: Object.freeze({
+    sheetSize: 'custom', customSheetWidth: 228.6, customSheetHeight: 304.8,
+    orientation: 'portrait', gridCols: 3, gridRows: 3,
+    marginTop: 7.9, marginLeft: 10.6, gapHorizontal: 2.45, gapVertical: 6.4,
+    cardWidth: 67, cardHeight: 92, targetDPI: TARGET_DPI,
+    showRegMarks: true, regMarkWidth: 3.3, regMarkHeight: 60,
+    regMarkX: 7, regMarkY: 60.4, printCutLines: false,
+  }),
 });
 
 const asArray = value => {
