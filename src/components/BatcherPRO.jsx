@@ -173,7 +173,7 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
   const sidebarRef = useRef(null);
 
   const [presetName, setPresetName] = useState('');
-  const [savedPresets, setSavedPresets] = useState([]);
+
   const [isLoadingProject, setIsLoadingProject] = useState(false);
   const [isLoadingPaidOrders, setIsLoadingPaidOrders] = useState(false);
   const [partnerLoadErrors,setPartnerLoadErrors] = useState([]);
@@ -196,16 +196,13 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
   // Customer navigation state
   const [currentCustomerIndex, setCurrentCustomerIndex] = useState(0);
 
+  // Same-origin tabs share localStorage. A foil bookmark or team entry gets its own namespace.
+  const foilStation = new URLSearchParams(window.location.search).get('batcherInstance') === 'foil';
+  const instancePrefix = (foilStation ? 'foil-station:' : '') + (teamAccess ? 'team:' : '');
   // Restore explicitly saved browser defaults.
-  const [stockConfigs, setStockConfigs] = useState(() => ({ standard: loadBatcherDefaults('standard', INITIAL_CONFIG), foil: loadBatcherDefaults('foil', FOIL_CONFIG) }));
+  const [stockConfigs, setStockConfigs] = useState(() => ({ standard: loadBatcherDefaults(instancePrefix + 'standard', INITIAL_CONFIG), foil: loadBatcherDefaults(instancePrefix + 'foil', FOIL_CONFIG) }));
 
   // --- Effects ---
-
-  // Load Presets List Only
-  useEffect(() => {
-    const loaded = JSON.parse(localStorage.getItem('cardBatcherPresets') || '[]');
-    setSavedPresets(loaded);
-  }, []);
 
   // Automatically load paid orders on component mount
   useEffect(() => {
@@ -373,6 +370,12 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
   );
 
   const activeStock = customerPages[previewPage]?.stock || 'standard';
+  const settingsScope = instancePrefix + activeStock;
+  const presetKey = settingsScope === 'standard' ? 'cardBatcherPresets' : 'cardBatcherPresets:' + settingsScope;
+  const [presetLists, setPresetLists] = useState({});
+  const savedPresets = presetLists[presetKey] ?? JSON.parse(localStorage.getItem(presetKey) || '[]');
+  const setSavedPresets = list => setPresetLists(previous => ({ ...previous, [presetKey]: list }));
+
   const config = stockConfigs[activeStock];
   const setConfig = value => setStockConfigs(previous => ({
     ...previous,
@@ -838,7 +841,7 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
     const newPreset = { name: presetName, config: { ...config } };
     const updatedPresets = [...savedPresets, newPreset];
     setSavedPresets(updatedPresets);
-    localStorage.setItem('cardBatcherPresets', JSON.stringify(updatedPresets));
+    localStorage.setItem(presetKey, JSON.stringify(updatedPresets));
     setPresetName('');
     alert(`Preset "${presetName}" saved!`);
   };
@@ -852,7 +855,7 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
   const deletePreset = (index) => {
     const updated = savedPresets.filter((_, i) => i !== index);
     setSavedPresets(updated);
-    localStorage.setItem('cardBatcherPresets', JSON.stringify(updated));
+    localStorage.setItem(presetKey, JSON.stringify(updated));
   };
 
   // Helper function to check if an image path is a mask
@@ -1859,7 +1862,7 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
 
   // Provide context value (after all handlers are defined)
   const saveSettingsAsDefault = () => {
-    localStorage.setItem('cardBatcherDefaults:' + activeStock, JSON.stringify(config));
+    localStorage.setItem('cardBatcherDefaults:' + settingsScope, JSON.stringify(config));
   };
 
   const contextValue = {
