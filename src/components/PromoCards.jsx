@@ -65,10 +65,22 @@ export default function PromoCards() {
       <div className="promo-settings">
         {[['enabled','Promo cards on'],['include_credit_orders','Include orders paid with credits'],['require_verified_email','Require verified email']].map(([key,label]) => <label key={key}><input type="checkbox" checked={settings[key]} onChange={e => setSettings({ ...settings, [key]: e.target.checked })}/>{label}</label>)}
         <label>Claim limit<select value={settings.claim_limit} onChange={e => setSettings({ ...settings, claim_limit: e.target.value })}><option value="ever">Once per account, ever</option><option value="monthly">Once per calendar month (UTC)</option></select></label>
-        {[['expiry_months','Expiry after shipping (months)'],['standard_capacity','Standard sheet capacity'],['foil_capacity','Foil sheet capacity'],['artwork_width','Artwork width (pixels)'],['artwork_height','Artwork height (pixels)']].map(([key,label]) => <label key={key}>{label}<input type="number" min="1" required value={settings[key]} onChange={e => setSettings({ ...settings, [key]: Number(e.target.value) })}/></label>)}
+        <label>Expiry after export (months)
+          <input type="number" min="1" max="120" step="1" placeholder="No expiry" value={settings.expiry_months ?? ''}
+            onChange={e => setSettings({ ...settings, expiry_months: e.target.value === '' ? null : Number(e.target.value) })}/>
+          <small>Leave blank for no expiry. Applies when a sheet is first exported.</small>
+        </label>
+        {[['standard_capacity','Standard sheet capacity'],['foil_capacity','Foil sheet capacity'],['artwork_width','Artwork width (pixels)'],['artwork_height','Artwork height (pixels)']].map(([key,label]) => <label key={key}>{label}<input type="number" min="1" required value={settings[key]} onChange={e => setSettings({ ...settings, [key]: Number(e.target.value) })}/></label>)}
       </div>
       <p>Capacity must match the printer grid. Confirm bleed dimensions with the Professor before uploading.</p>
-      <button onClick={() => action(async () => { if (settings.enabled && !settings.back_file) throw new Error('Upload the shared back before enabling promos.'); const { error } = await supabase.from('promo_settings').update(settings).eq('id', true); if (error) throw error; setNotice('Settings saved.'); })}>Save settings</button>
+      <button onClick={() => action(async () => {
+        const months = settings.expiry_months;
+        if (months != null && (!Number.isInteger(months) || months < 1 || months > 120)) throw new Error('Use 1–120 months or leave expiry blank.');
+        if (settings.enabled && !settings.back_file) throw new Error('Upload the shared back before enabling promos.');
+        const { error } = await supabase.from('promo_settings').update(settings).eq('id', true);
+        if (error) throw error;
+        setNotice('Settings saved.');
+      })}>Save settings</button>
     </fieldset>
     <fieldset disabled={busy}><legend>Upload artwork</legend>
       <label>Front design<input type="file" accept="image/png,image/jpeg" onChange={e => choose(e.target.files[0])}/></label>
@@ -83,9 +95,9 @@ export default function PromoCards() {
     <div className="promo-table"><table><thead><tr>{['Design','Weight','Printed','Activated','Claimed','Claim rate','Sign-ups','Status'].map(x => <th key={x}>{x}</th>)}</tr></thead><tbody>
       {report.designs.map(d => <tr key={d.id}><td><img src={d.preview_file} alt="" width="52"/>{d.name}</td><td><input aria-label={`Weight for ${d.name}`} type="number" min="1" max="10000" defaultValue={d.weight} onBlur={e => { const value=Number(e.target.value); if (value!==d.weight) action(async () => { const { error } = await supabase.from('promo_designs').update({ weight:value }).eq('id',d.id); if(error) throw error; }); }}/></td><td>{d.printed}</td><td>{d.activated}</td><td>{d.claimed}</td><td>{d.printed ? (d.claimed/d.printed*100).toFixed(1) : '0'}%</td><td>{d.signups}</td><td><button disabled={busy} onClick={() => action(async () => { const {error}=await supabase.from('promo_designs').update({status:d.status==='active'?'retired':'active'}).eq('id',d.id); if(error)throw error; })}>{d.status === 'active' ? 'Retire' : 'Activate'}</button></td></tr>)}
     </tbody></table></div>
-    <fieldset disabled={busy}><legend>Replace a printed sheet</legend><p>Voids unclaimed codes for this order’s stock group and invalidates its cached PDFs. Regenerate the full order before printing. Downloading an existing PDF does not require this action.</p>
+    <fieldset disabled={busy}><legend>Replace a printed sheet</legend><p>A replacement creates new codes for this stock group. Cards already exported keep their codes. Regenerate the full order before printing the replacement.</p>
       <label>Order ID<input value={orderId} onChange={e=>setOrderId(e.target.value)} placeholder="Order UUID"/></label><label>Stock<select value={stock} onChange={e=>setStock(e.target.value)}><option value="standard">Standard</option><option value="foil">Foil</option></select></label>
-      <button onClick={() => { if(window.confirm('Void the old unclaimed promo codes and invalidate this order’s PDFs?')) action(async () => { const {error}=await supabase.rpc('replace_promo_run',{p_order:orderId.trim(),p_group:stock}); if(error)throw error; setNotice('Old codes voided. Regenerate the order PDFs before printing.'); }); }}>Replace promo run</button>
+      <button onClick={() => { if(window.confirm('Replace this promo run and invalidate its cached PDFs? Previously exported cards will still work.')) action(async () => { const {error}=await supabase.rpc('replace_promo_run',{p_order:orderId.trim(),p_group:stock}); if(error)throw error; setNotice('Replacement requested. Regenerate the order PDFs to export the new codes.'); }); }}>Replace promo run</button>
     </fieldset>
   </section>;
 }
