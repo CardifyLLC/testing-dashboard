@@ -21,7 +21,7 @@ export async function promoBackSvg(code, backDataUrl) {
   if (!/^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/.test(backDataUrl)) throw new Error('Invalid back template');
   const qr = await QRCode.toString(`HTTPS://TCGPLAYTEST.COM/R/${code}`, { type: 'svg', errorCorrectionLevel: 'M', margin: 4 });
   const positioned = qr.replace('<svg ', '<svg x="242" y="440" width="340" height="340" ');
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="825" height="1125" viewBox="0 0 825 1125"><image href="${backDataUrl}" width="825" height="1125"/><rect x="190" y="410" width="445" height="550" rx="20" fill="white"/>${positioned}<g fill="black" font-family="Arial,sans-serif" text-anchor="middle"><text x="412" y="823" font-size="30" font-weight="bold">TCGPLAYTEST.COM</text><text x="412" y="870" font-size="23">Must have an account to redeem.</text><text x="412" y="905" font-size="23">S&amp;H still applies.</text><text x="412" y="938" font-size="21">One free standard card.</text></g></svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="825" height="1125" viewBox="0 0 825 1125"><image href="${backDataUrl}" width="825" height="1125"/><rect x="190" y="410" width="445" height="550" rx="20" fill="white"/>${positioned}<g fill="black" font-family="Arial,sans-serif" text-anchor="middle"><text x="412" y="823" font-size="30" font-weight="bold">TCGPLAYTEST.COM</text><text x="412" y="870" font-size="23">Must have an account to redeem.</text><text x="412" y="905" font-size="23">S&amp;H still applies.</text><text x="412" y="938" font-size="21">5 free standard prints.</text></g></svg>`;
 }
 export async function renderPromoBack(code, url) {
   const response = await fetch(url);
