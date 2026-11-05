@@ -77,8 +77,31 @@ const INITIAL_CONFIG = {
   bleedAmount: 0.0,
   safetyCrop: 0.0,
   targetDPI: LOCKED_TARGET_DPI,    // Locked to 1200
+  slotOffsets: {},
   printCutLines: true
 };
+
+function getSlotOffset(config, index) {
+  const offset = config.slotOffsets?.[index];
+  return {
+    x: Number.isFinite(Number(offset?.x)) ? Number(offset.x) : 0,
+    y: Number.isFinite(Number(offset?.y)) ? Number(offset.y) : 0,
+  };
+}
+
+function nudgeSlot(config, index, dx, dy) {
+  const current = getSlotOffset(config, index);
+  return {
+    ...config,
+    slotOffsets: {
+      ...config.slotOffsets,
+      [index]: {
+        x: Math.round((current.x + dx) * 10) / 10,
+        y: Math.round((current.y + dy) * 10) / 10,
+      },
+    },
+  };
+}
 
 function loadBatcherDefaults(stock, fallback) {
   try {
@@ -92,6 +115,7 @@ function loadBatcherDefaults(stock, fallback) {
         result[key] = value;
       }
     }
+    result.slotOffsets = saved.slotOffsets && typeof saved.slotOffsets === 'object' && !Array.isArray(saved.slotOffsets) ? saved.slotOffsets : {};
     return result;
   } catch {
     return fallback;
@@ -114,6 +138,7 @@ function SaveDefaultsButton() {
       <button type="button" onClick={save} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700">
         <Save className="w-4 h-4" /> Save settings as default
       </button>
+      <p className="text-xs mt-2">Select a sheet slot, then use arrow keys to move it 0.1 mm. Save defaults to keep slot adjustments for future sheets.</p>
       {feedback?.config === config && <p role="status" className="text-xs mt-2">{feedback.message}</p>}
     </div>
   );
@@ -162,6 +187,7 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
   const [autoFitZoom, setAutoFitZoom] = useState(true);
 
   const [activeTool, setActiveTool] = useState('select');
+  const [selectedSlot, setSelectedSlot] = useState(null);
   const [isPanning, setIsPanning] = useState(false);
   const [panStart, setPanStart] = useState({ x: 0, y: 0 });
   const scrollContainerRef = useRef(null);
@@ -828,7 +854,7 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
       try {
         const data = JSON.parse(event.target.result);
         if (data.config && confirm(`Load preset "${data.name || file.name}" ? `)) {
-          setConfig({ ...INITIAL_CONFIG, ...data.config });
+          setConfig({ ...(activeStock === 'foil' ? FOIL_CONFIG : INITIAL_CONFIG), ...data.config });
         }
       } catch (err) { alert("Invalid Preset"); }
     };
@@ -848,7 +874,7 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
 
   const loadPreset = (preset) => {
     if (confirm(`Load preset "${preset.name}" ? `)) {
-      setConfig({ ...INITIAL_CONFIG, ...preset.config });
+      setConfig({ ...(activeStock === 'foil' ? FOIL_CONFIG : INITIAL_CONFIG), ...preset.config });
     }
   };
 
@@ -1472,7 +1498,7 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
             const col = i % cols;
             const row = Math.floor(i / cols);
 
-            const { x, y } = gridPosition(col, row, cWidth, cHeight, mLeft, mTop, gHorz, gVert);
+            const { x, y } = gridPosition(col, row, cWidth, cHeight, mLeft + getSlotOffset(config, i).x, mTop + getSlotOffset(config, i).y, gHorz, gVert);
 
             if (pageImages[i]) {
               try {
@@ -1512,7 +1538,7 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
               const col = i % cols;
               const row = Math.floor(i / cols);
 
-              const { x: frontBaseX, y: frontBaseY } = gridPosition(col, row, cWidth, cHeight, mLeft, mTop, gHorz, gVert);
+              const { x: frontBaseX, y: frontBaseY } = gridPosition(col, row, cWidth, cHeight, mLeft + getSlotOffset(config, i).x, mTop + getSlotOffset(config, i).y, gHorz, gVert);
 
               let x, y;
               let useRotatedImage = false;
@@ -1671,7 +1697,7 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
             const col = i % cols;
             const row = Math.floor(i / cols);
 
-            const { x, y } = gridPosition(col, row, cWidth, cHeight, mLeft, mTop, gHorz, gVert);
+            const { x, y } = gridPosition(col, row, cWidth, cHeight, mLeft + getSlotOffset(config, i).x, mTop + getSlotOffset(config, i).y, gHorz, gVert);
 
             if (pageImages[i] && pageImages[i].spotMask) {
               try {
@@ -1695,7 +1721,7 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
             for (let i=0;i<pageImages.length;i++) {
               const card=pageImages[i];
               if (!card?.isPromo || !card.spotMask) continue;
-              const front=gridPosition(i%cols,Math.floor(i/cols),cWidth,cHeight,mLeft,mTop,gHorz,gVert);
+              const front=gridPosition(i%cols,Math.floor(i/cols),cWidth,cHeight,mLeft+getSlotOffset(config,i).x,mTop+getSlotOffset(config,i).y,gHorz,gVert);
               const x=config.flipBackPage ? front.x+Number(config.backShiftX||0) : PAGE_WIDTH_MM-front.x-cWidth+Number(config.backShiftX||0);
               const y=config.flipBackPage ? PAGE_HEIGHT_MM-front.y-cHeight+Number(config.backShiftY||0) : front.y+Number(config.backShiftY||0);
               const image=await processImageForPrintLocked(card.spotMask,cWidth,cHeight,false,0.92);
@@ -1861,6 +1887,32 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
   const remainingLabel = formatDuration(estimatedRemainingSeconds);
 
   // Provide context value (after all handlers are defined)
+  const selectedSlotIndex = selectedSlot?.scope === settingsScope ? selectedSlot.index : null;
+  const selectSlot = (event, index) => {
+    if (activeTool !== 'select' || event.target.closest('button, input, select, textarea, label, a, [contenteditable="true"]')) return;
+    event.stopPropagation();
+    event.currentTarget.focus({ preventScroll: true });
+    setSelectedSlot({ scope: settingsScope, index });
+  };
+  const handleSlotKeyDown = (event, index) => {
+    if (event.target !== event.currentTarget || activeTool !== 'select' || generating || event.ctrlKey || event.metaKey || event.altKey) return;
+    if (event.key === 'Escape') {
+      setSelectedSlot(null);
+      event.currentTarget.blur();
+      return;
+    }
+    const directions = { ArrowLeft: [-0.1, 0], ArrowRight: [0.1, 0], ArrowUp: [0, -0.1], ArrowDown: [0, 0.1] };
+    const direction = directions[event.key];
+    if (!direction) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const [dx, dy] = direction;
+    // The back preview mirrors X when duplex rotation is disabled.
+    const horizontal = previewSide === 'back' && !config.flipBackPage ? -dx : dx;
+    setSelectedSlot({ scope: settingsScope, index });
+    setConfig(previous => nudgeSlot(previous, index, horizontal, dy));
+  };
+
   const saveSettingsAsDefault = () => {
     localStorage.setItem('cardBatcherDefaults:' + settingsScope, JSON.stringify(config));
   };
@@ -2872,7 +2924,7 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
                   {totalPages > 1 && (
                     <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 bg-slate-700/90 backdrop-blur shadow-sm border border-slate-600 rounded-full px-4 py-2 flex items-center gap-4">
                       <button
-                        aria-label="Previous sheet" disabled={previewPage === 0}
+aria-label="Previous sheet" disabled={previewPage === 0}
                         onClick={() => setPreviewPage(p => Math.max(0, p - 1))}
                         className="text-slate-300 hover:text-blue-600 disabled:opacity-30"
                       >
@@ -2882,7 +2934,7 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
                         {activeStock === 'foil' ? 'Foil' : 'Standard'} · Sheet {previewPage + 1} of {totalPages}
                       </span>
                       <button
-                        aria-label="Next sheet" disabled={previewPage >= totalPages - 1}
+aria-label="Next sheet" disabled={previewPage >= totalPages - 1}
                         onClick={() => setPreviewPage(p => Math.min(totalPages - 1, p + 1))}
                         className="text-slate-300 hover:text-blue-600 disabled:opacity-30"
                       >
@@ -2896,6 +2948,7 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
                     className={`flex-1 overflow-auto relative w-full ${activeTool === 'pan' ? 'cursor-grab active:cursor-grabbing' : ''}`}
                     ref={scrollContainerRef}
                     onMouseDown={handleMouseDown}
+                    onClick={event => { if (!event.target.closest('[data-slot-index]')) setSelectedSlot(null); }}
                     onMouseMove={handleMouseMove}
                     onMouseUp={handleMouseUp}
                     onMouseLeave={handleMouseUp}
@@ -2994,6 +3047,9 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
 
                             let mmX = getConfigNum('marginLeft') + (col * (getConfigNum('cardWidth') + getConfigNum('gapHorizontal')));
                             let mmY = getConfigNum('marginTop') + (row * (getConfigNum('cardHeight') + getConfigNum('gapVertical')));
+                            const offset = getSlotOffset(config, i);
+                            mmX += offset.x;
+                            mmY += offset.y;
 
                             if (previewSide === 'back') {
                               if (config.flipBackPage) {
@@ -3060,13 +3116,21 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
                                 */}
                                 {/* IMAGE LAYER (Previewing Trim Only) */}
                                 <div
-                                  className="absolute overflow-hidden bg-slate-50 group"
+                                  className="absolute overflow-hidden bg-slate-50 group cursor-pointer"
+                                  data-slot-index={i}
+                                  tabIndex={0}
+                                  aria-label={"Slot " + (i + 1) + ", X offset " + offset.x + " mm, Y offset " + offset.y + " mm. Arrow keys move 0.1 mm."}
+                                  onClick={event => selectSlot(event, i)}
+                                  onFocus={event => { if (event.target === event.currentTarget && activeTool === 'select') setSelectedSlot({ scope: settingsScope, index: i }); }}
+                                  onKeyDown={event => handleSlotKeyDown(event, i)}
                                   style={{
                                     width: drawW,
                                     height: drawH,
                                     left: drawX,
                                     top: drawY,
-                                    zIndex: 10
+                                    zIndex: selectedSlotIndex === i ? 40 : 10,
+                                    outline: selectedSlotIndex === i ? '2px solid #2563eb' : undefined,
+                                    outlineOffset: 2
                                   }}
                                 >
                                   {image ? (
@@ -4072,7 +4136,7 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
             {totalPages > 1 && (
               <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 bg-white/90 backdrop-blur shadow-sm border border-slate-300 rounded-full px-4 py-2 flex items-center gap-4">
                 <button
-                  aria-label="Previous sheet" disabled={previewPage === 0}
+                                  aria-label="Previous sheet" disabled={previewPage === 0}
                   onClick={() => setPreviewPage(p => Math.max(0, p - 1))}
                   className="text-slate-600 hover:text-blue-600 disabled:opacity-30"
                 >
@@ -4082,7 +4146,7 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
                   {activeStock === 'foil' ? 'Foil' : 'Standard'} · Sheet {previewPage + 1} of {totalPages}
                 </span>
                 <button
-                  aria-label="Next sheet" disabled={previewPage >= totalPages - 1}
+                                  aria-label="Next sheet" disabled={previewPage >= totalPages - 1}
                   onClick={() => setPreviewPage(p => Math.min(totalPages - 1, p + 1))}
                   className="text-slate-600 hover:text-blue-600 disabled:opacity-30"
                 >
@@ -4096,6 +4160,7 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
               className={`flex-1 overflow-auto relative ${activeTool === 'pan' ? 'cursor-grab active:cursor-grabbing' : ''}`}
               ref={scrollContainerRef}
               onMouseDown={handleMouseDown}
+                    onClick={event => { if (!event.target.closest('[data-slot-index]')) setSelectedSlot(null); }}
               onMouseMove={handleMouseMove}
               onMouseUp={handleMouseUp}
               onMouseLeave={handleMouseUp}
@@ -4186,6 +4251,9 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
 
                       let mmX = getConfigNum('marginLeft') + (col * (getConfigNum('cardWidth') + getConfigNum('gapHorizontal')));
                       let mmY = getConfigNum('marginTop') + (row * (getConfigNum('cardHeight') + getConfigNum('gapVertical')));
+                      const offset = getSlotOffset(config, i);
+                      mmX += offset.x;
+                      mmY += offset.y;
 
                       if (previewSide === 'back') {
                         if (config.flipBackPage) {
@@ -4249,13 +4317,21 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
                           */}
 
                           <div
-                            className="absolute overflow-hidden bg-slate-50 group"
+                            className="absolute overflow-hidden bg-slate-50 group cursor-pointer"
+                            data-slot-index={i}
+                            tabIndex={0}
+                            aria-label={"Slot " + (i + 1) + ", X offset " + offset.x + " mm, Y offset " + offset.y + " mm. Arrow keys move 0.1 mm."}
+                            onClick={event => selectSlot(event, i)}
+                            onFocus={event => { if (event.target === event.currentTarget && activeTool === 'select') setSelectedSlot({ scope: settingsScope, index: i }); }}
+                            onKeyDown={event => handleSlotKeyDown(event, i)}
                             style={{
                               width: drawW,
                               height: drawH,
                               left: drawX,
                               top: drawY,
-                              zIndex: 10
+                              zIndex: selectedSlotIndex === i ? 40 : 10,
+                              outline: selectedSlotIndex === i ? '2px solid #2563eb' : undefined,
+                              outlineOffset: 2
                             }}
                           >
                             {image ? (
