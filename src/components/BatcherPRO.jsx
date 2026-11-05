@@ -1910,7 +1910,8 @@ const CardBatcherPro = ({ showSidebar = true, onBackToDashboard, teamAccess = fa
     // The back preview mirrors X when duplex rotation is disabled.
     const horizontal = previewSide === 'back' && !config.flipBackPage ? -dx : dx;
     setSelectedSlot({ scope: settingsScope, index });
-    setConfig(previous => nudgeSlot(previous, index, horizontal, dy));
+    const vertical = previewSide === 'back' && config.flipBackPage ? -dy : dy;
+    setConfig(previous => nudgeSlot(previous, index, horizontal, vertical));
   };
 
   const saveSettingsAsDefault = () => {
@@ -3009,7 +3010,7 @@ aria-label="Next sheet" disabled={previewPage >= totalPages - 1}
                                   if (config.flipBackPage) {
                                     // Flip Logic
                                     x = mmToPx(getConfigNum('regMarkX')) + shiftX;
-                                    y = mmToPx(getConfigNum('regMarkY')) + shiftY;
+                                    y = mmToPx(PAGE_HEIGHT_MM - getConfigNum('regMarkY') - getConfigNum('regMarkHeight')) + shiftY;
                                   } else {
                                     // Standard Mirror
                                     x = mmToPx(PAGE_WIDTH_MM) - x - w + shiftX;
@@ -3055,7 +3056,7 @@ aria-label="Next sheet" disabled={previewPage >= totalPages - 1}
                               if (config.flipBackPage) {
                                 // Flip Mode
                                 mmX += getConfigNum('backShiftX');
-                                mmY += getConfigNum('backShiftY');
+                                mmY = PAGE_HEIGHT_MM - mmY - getConfigNum('cardHeight') + getConfigNum('backShiftY');
                               } else {
                                 // Standard Mirror
                                 mmX = PAGE_WIDTH_MM - mmX - getConfigNum('cardWidth');
@@ -3136,6 +3137,7 @@ aria-label="Next sheet" disabled={previewPage >= totalPages - 1}
                                   {image ? (
                                     <OrderImage
                                       src={image}
+                                      style={{ transform: previewSide === 'back' && config.flipBackPage ? 'rotate(180deg)' : undefined }}
                                       onLoad={(e) => logImgInfo('front (preview-grid)', e.currentTarget)}
                                       className="w-full h-full object-cover"
                                       alt={cardData?.isPromo ? (previewSide === 'front' ? 'Promo card front' : 'Promo card QR back') : ''}
@@ -4215,7 +4217,7 @@ aria-label="Next sheet" disabled={previewPage >= totalPages - 1}
                           if (previewSide === 'back') {
                             if (config.flipBackPage) {
                               x = mmToPx(getConfigNum('regMarkX')) + shiftX;
-                              y = mmToPx(getConfigNum('regMarkY')) + shiftY;
+                              y = mmToPx(PAGE_HEIGHT_MM - getConfigNum('regMarkY') - getConfigNum('regMarkHeight')) + shiftY;
                             } else {
                               x = mmToPx(PAGE_WIDTH_MM) - x - w + shiftX;
                               y = y + shiftY;
@@ -4258,7 +4260,7 @@ aria-label="Next sheet" disabled={previewPage >= totalPages - 1}
                       if (previewSide === 'back') {
                         if (config.flipBackPage) {
                           mmX += getConfigNum('backShiftX');
-                          mmY += getConfigNum('backShiftY');
+                          mmY = PAGE_HEIGHT_MM - mmY - getConfigNum('cardHeight') + getConfigNum('backShiftY');
                         } else {
                           mmX = PAGE_WIDTH_MM - mmX - getConfigNum('cardWidth');
                           mmX += getConfigNum('backShiftX');
@@ -4337,7 +4339,8 @@ aria-label="Next sheet" disabled={previewPage >= totalPages - 1}
                             {image ? (
                               <OrderImage
                                 src={image}
-                                onLoad={(e) => logImgInfo('front (main-grid)', e.currentTarget)}
+                                style={{ transform: previewSide === 'back' && config.flipBackPage ? 'rotate(180deg)' : undefined }}
+                                      onLoad={(e) => logImgInfo('front (main-grid)', e.currentTarget)}
                                 onError={(e) => {
                                   console.error('Image failed to load:', image);
                                   e.target.style.display = 'none';
