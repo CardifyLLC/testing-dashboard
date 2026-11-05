@@ -59,7 +59,7 @@ export default function PromoCards() {
   }
   if (!settings) return <section className="promo-panel"><h2>Promo Cards</h2><p role="alert">{error || 'Loading…'}</p></section>;
   return <section className="promo-panel">
-    <h2>Promo Cards</h2><p>Fill spare sheet slots with a free standard print to share.</p>
+    <h2>Promo Cards</h2><p>Fill spare sheet slots with promo cards. Each claim gives 5 free standard prints to the recipient.</p>
     {error && <p role="alert" className="promo-error">{error}</p>}{notice && <p role="status">{notice}</p>}
     <fieldset disabled={busy}><legend>Settings</legend>
       <div className="promo-settings">
