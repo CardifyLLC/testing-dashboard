@@ -3159,7 +3159,7 @@ aria-label="Next sheet" disabled={previewPage >= totalPages - 1}
                                   {/* Customer Name Badge */}
                                   {cardData && (cardData.isPromo || cardData.customerName) && (
                                     <div className={`absolute bottom-0 left-0 right-0 ${cardData.isPromo ? 'bg-violet-700/90' : 'bg-green-600/90'} text-white text-[7px] px-1.5 py-0.5 rounded-t-sm shadow-sm z-20 pointer-events-none font-semibold truncate`}>
-                                      {cardData.isPromo ? 'Promo · Free standard print' : cardData.customerName}
+                                      {cardData.isPromo ? 'Promo · 5 free standard prints' : cardData.customerName}
                                     </div>
                                   )}
 
@@ -4364,7 +4364,7 @@ aria-label="Next sheet" disabled={previewPage >= totalPages - 1}
                             {/* Customer Name Badge */}
                             {cardData && (cardData.isPromo || cardData.customerName) && (
                               <div className={`absolute bottom-0 left-0 right-0 ${cardData.isPromo ? 'bg-violet-700/90' : 'bg-green-600/90'} text-white text-[7px] px-1.5 py-0.5 rounded-t-sm shadow-sm z-20 pointer-events-none font-semibold truncate`}>
-                                {cardData.isPromo ? 'Promo · Free standard print' : cardData.customerName}
+                                {cardData.isPromo ? 'Promo · 5 free standard prints' : cardData.customerName}
                               </div>
                             )}
 
