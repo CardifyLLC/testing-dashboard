@@ -4,11 +4,17 @@ import { cardStock, sheetDimensions } from '../src/services/batcherStock.mjs';
 
 export const TARGET_DPI = 1200;
 export const IMAGE_QUALITY = 50;
-// Retain the automatic worker's existing standard-stock layout.
+// Fixed daily-worker calibration, independent of browser-local BatcherPRO.
+// Professor confirmed the unlabeled X/Y zeros on 2026-11-06.
 export const ORDER_PDF_CONFIGS = Object.freeze({
   standard: Object.freeze({
     sheetSize: '12x18', orientation: 'landscape', gridCols: 6, gridRows: 3,
-    marginTop: 15.5, marginLeft: 9.7, gapHorizontal: 2.45, gapVertical: 6.4,
+    marginTop: 15.5, marginLeft: 9.7, gapHorizontal: 2.6, gapVertical: 6.4,
+    slotOffsetsX: Object.freeze([
+      0, 0, 0, 0, 0, 0,
+      0, -0.2, -0.1, -0.2, -0.2, -0.2,
+      -0.2, -0.3, -0.4, -0.5, -0.6, -0.6,
+    ]),
     cardWidth: 67, cardHeight: 92, targetDPI: TARGET_DPI,
     showRegMarks: true, regMarkWidth: 3.3, regMarkHeight: 60,
     regMarkX: 7, regMarkY: 60.4, printCutLines: true,
@@ -162,7 +168,9 @@ export async function generateOrderPdf(order, part, fetchImage, onProgress = asy
     });
   };
   const position = index => ({
-    x: mmToPt(config.marginLeft + (index % config.gridCols) * (config.cardWidth + config.gapHorizontal)),
+    // Sheet-local index resets for full/partial sheets and each PDF part.
+    // Foil has no regular-slot offsets; all calibrated Y offsets are zero.
+    x: mmToPt(config.marginLeft + (index % config.gridCols) * (config.cardWidth + config.gapHorizontal) + (config.slotOffsetsX?.[index] ?? 0)),
     y: pageHeight - mmToPt(config.marginTop + config.cardHeight + Math.floor(index / config.gridCols) * (config.cardHeight + config.gapVertical)),
   });
   const drawCutLine = (page, x, y) => {
