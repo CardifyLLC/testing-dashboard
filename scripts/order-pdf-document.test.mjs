@@ -97,7 +97,8 @@ for (const [stock, finish, width, cols, left, top] of [
       assert.equal(placements.length, count);
       placements.forEach((block, i) => {
         const [translate, rotate, scale] = transforms(block);
-        const x = left + (i % cols) * (67 + 2.45);
+        const offsets = [0,0,0,0,0,0,0,-.2,-.1,-.2,-.2,-.2,-.2,-.3,-.4,-.5,-.6,-.6];
+        const x = left + (i % cols) * (67 + (stock === 'standard' ? 2.6 : 2.45)) + (stock === 'standard' ? offsets[i] : 0);
         const yTop = top + Math.floor(i / cols) * 98.4;
         close(translate[4], pt(x + (side ? 67 : 0)));
         close(translate[5], pt(side ? yTop + 92 : 304.8 - yTop - 92));
@@ -129,6 +130,36 @@ test('foil pagination starts a new sheet after 9 cards; missing backs keep their
   const back = transforms(imageBlocks(pdf.getPage(1))[0])[0];
   close(back[4], pt(10.6 + 67 + 2.45 + 67));
   close(back[5], pt(7.9 + 92));
+});
+
+test('regular calibration repeats across sheets and parts, with partial sheets and missing backs', async () => {
+  const xs = [9.7,79.3,148.9,218.5,288.1,357.7,9.7,79.1,148.8,218.3,287.9,357.5,9.5,79,148.5,218,287.5,357.1];
+  const cards = normalize({ card_data: Array.from({ length: 52 }, (_, i) => ({ ...card('standard', String(i)), backUrl: i % 18 === 7 ? '' : card('standard', String(i)).backUrl })) });
+  // Two sheets per part deliberately exercises a new part and a 16-slot tail.
+  const parts = buildOrderPdfParts(cards, 2);
+  assert.deepEqual(parts.map(part => part.cards.length), [36,16]);
+  for (const part of parts) {
+    const pdf = await PDFDocument.load(await generateOrderPdf({}, part, async () => jpeg));
+    for (let pageIndex = 0; pageIndex < pdf.getPageCount(); pageIndex++) {
+      const back = pageIndex % 2 === 1;
+      const count = Math.min(18, part.cards.length - Math.floor(pageIndex / 2) * 18);
+      const slots = Array.from({ length: count }, (_, i) => i).filter(i => !back || i !== 7);
+      const page = pdf.getPage(pageIndex);
+      const images = imageBlocks(page);
+      assert.equal(images.length, slots.length);
+      const cuts = blocks(page).filter(block => !block.includes(' Do') && !block.includes('BT')).slice(1);
+      images.forEach((block, i) => {
+        const slot = slots[i], top = 15.5 + Math.floor(slot / 6) * 98.4;
+        const [translate, rotate] = transforms(block);
+        close(translate[4], pt(xs[slot] + (back ? 67 : 0)));
+        close(translate[5], pt(back ? top + 92 : 304.8 - top - 92));
+        close(rotate[0], back ? -1 : 1);
+        const [cut] = transforms(cuts[i]);
+        close(cut[4], pt(xs[slot]));
+        close(cut[5], pt(back ? top : 304.8 - top - 92));
+      });
+    }
+  }
 });
 
 test('renderer refuses mixed stocks instead of silently using one layout', async () => {
