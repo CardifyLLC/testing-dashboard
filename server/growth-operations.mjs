@@ -1,4 +1,5 @@
 import { feedbackEligibility } from './feedback-eligibility.mjs';
+import { sendTargetedFeedback } from './feedback-targeted.mjs';
 const UUID=/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 import { validateCampaign } from '../shared/feedback-campaign.mjs';
 import { runFeedbackBatch } from './feedback-delivery.mjs';
@@ -33,7 +34,7 @@ export function createGrowthOperationsHandler({createClient,env=process.env}){re
       if(params.get('view')==='feedback-eligibility'){
         const id=params.get('campaign_id');
         if(!UUID.test(id||''))throw new HttpError(400,'Invalid campaign.');
-        return send(200,await feedbackEligibility(db,id,env));
+        return send(200,{...await feedbackEligibility(db,id,env),canSend:user.id===approver});
       }
       const rows=await Promise.all(['growth_ideas','operation_exceptions','feedback_campaigns'].map(table=>db.from(table).select('*').order('created_at',{ascending:false}).limit(100)));
       return send(200,{ideas:checked(rows[0]),exceptions:checked(rows[1]),campaigns:checked(rows[2]),canApprove:user.id===approver,canReject});
@@ -41,6 +42,12 @@ export function createGrowthOperationsHandler({createClient,env=process.env}){re
     if(Buffer.byteLength(typeof req.body==='string'?req.body:JSON.stringify(req.body)||'')>30000)throw new HttpError(413,'Request too large.');
     let body;try{body=typeof req.body==='string'?JSON.parse(req.body):req.body;}catch{throw new HttpError(400,'Invalid JSON.');}
     if(!body||typeof body!=='object')throw new HttpError(400,'Invalid request.');
+    if(body.action==='send_feedback_invitation'){
+      if(!approver||user.id!==approver)throw new HttpError(403,'Professor approval required.');
+      if(!UUID.test(body.id||'')||!UUID.test(body.order_id||'')||typeof body.expected_email!=='string'||body.expected_email.length>254)throw new HttpError(400,'Invalid invitation recipient.');
+      try{return send(200,await sendTargetedFeedback({db,env,campaignId:body.id,orderId:body.order_id,expectedEmail:body.expected_email}));}
+      catch(error){throw new HttpError(409,error.message);}
+    }
     if(body.action==='create_idea')return send(201,{idea:checked(await db.from('growth_ideas').insert({...validateIdea(body),created_by:user.id}).select().single())});
     if(body.action==='decide_idea'){
       const change=decisionChange(body,user.id,approver,canReject);
