@@ -1,8 +1,7 @@
 import { feedbackEligibility } from './feedback-eligibility.mjs';
-import { sendTargetedFeedback } from './feedback-targeted.mjs';
+import { feedbackEdge } from './feedback-edge.mjs';
 const UUID=/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 import { validateCampaign } from '../shared/feedback-campaign.mjs';
-import { runFeedbackBatch } from './feedback-delivery.mjs';
 import { reportingApprover, reportingCanReject } from './reporting-authority.mjs';
 export const IDEA_FIELDS=['title','segment','trigger_description','suggested_action','evidence','expected_benefit','cost','risks','owner','success_measure'];
 class HttpError extends Error{constructor(status,message){super(message);this.status=status;}}
@@ -15,7 +14,7 @@ export function decisionChange(body,user,approver,canReject=false){
   if(body.outcome!=null&&(typeof body.outcome!=='string'||body.outcome.length>4000))throw new HttpError(400,'Invalid outcome.');
   return{status:body.status,decided_by:user,decided_at:new Date().toISOString(),outcome:body.outcome?.trim()||null,version:body.version+1};
 }
-export function createGrowthOperationsHandler({createClient,env=process.env}){return async(req,res)=>{
+export function createGrowthOperationsHandler({createClient,env=process.env,edge=feedbackEdge}){return async(req,res)=>{
   res.setHeader('Cache-Control','private, no-store');res.setHeader('Content-Type','application/json');
   const send=(status,data)=>{res.statusCode=status;res.end(JSON.stringify(data));};
   try{
@@ -34,7 +33,9 @@ export function createGrowthOperationsHandler({createClient,env=process.env}){re
       if(params.get('view')==='feedback-eligibility'){
         const id=params.get('campaign_id');
         if(!UUID.test(id||''))throw new HttpError(400,'Invalid campaign.');
-        return send(200,{...await feedbackEligibility(db,id,env),canSend:user.id===approver});
+        const eligibility=await feedbackEligibility(db,id,env);
+        try{const ready=await edge({env,token,body:{action:'readiness'}});eligibility.blockers.push(...ready.blockers);}catch{eligibility.blockers.push('Testing feedback Edge Function unavailable. Deploy it and verify its secrets.');}
+        return send(200,{...eligibility,canSend:user.id===approver});
       }
       const rows=await Promise.all(['growth_ideas','operation_exceptions','feedback_campaigns'].map(table=>db.from(table).select('*').order('created_at',{ascending:false}).limit(100)));
       return send(200,{ideas:checked(rows[0]),exceptions:checked(rows[1]),campaigns:checked(rows[2]),canApprove:user.id===approver,canReject});
@@ -45,7 +46,7 @@ export function createGrowthOperationsHandler({createClient,env=process.env}){re
     if(body.action==='send_feedback_invitation'){
       if(!approver||user.id!==approver)throw new HttpError(403,'Professor approval required.');
       if(!UUID.test(body.id||'')||!UUID.test(body.order_id||'')||typeof body.expected_email!=='string'||body.expected_email.length>254)throw new HttpError(400,'Invalid invitation recipient.');
-      try{return send(200,await sendTargetedFeedback({db,env,campaignId:body.id,orderId:body.order_id,expectedEmail:body.expected_email}));}
+      try{return send(200,await edge({env,token,body:{action:'send',id:body.id,order_id:body.order_id,expected_email:body.expected_email}}));}
       catch(error){throw new HttpError(409,error.message);}
     }
     if(body.action==='create_idea')return send(201,{idea:checked(await db.from('growth_ideas').insert({...validateIdea(body),created_by:user.id}).select().single())});
@@ -74,6 +75,8 @@ export function createGrowthOperationsHandler({createClient,env=process.env}){re
       if(!approver||user.id!==approver)throw new HttpError(403,'Professor approval required.');
       if(env.FEEDBACK_DELIVERY_READY!=='true')throw new HttpError(503,'Delivery verification is not complete. Campaign remains disabled.');
       if(!UUID.test(body.id||'')||!Number.isInteger(body.version))throw new HttpError(400,'Invalid campaign version.');
+      const readiness=await edge({env,token,body:{action:'readiness'}});
+      if(readiness.blockers.length)throw new HttpError(503,readiness.blockers.join('; '));
       const current=checked(await db.from('feedback_campaigns').select('*').eq('id',body.id).single());
       try{validateCampaign(current);}catch(error){throw new HttpError(400,error.message);}
       const row=checked(await db.from('feedback_campaigns').update({enabled:true,paused:false,approved_by:user.id,approved_at:new Date().toISOString(),version:body.version+1}).eq('id',body.id).eq('version',body.version).select().maybeSingle());
@@ -82,7 +85,7 @@ export function createGrowthOperationsHandler({createClient,env=process.env}){re
     if(body.action==='run_feedback_batch'){
       if(env.FEEDBACK_DELIVERY_READY!=='true'||user.id!==approver)throw new HttpError(403,'Approved delivery setup required.');
       if(!UUID.test(body.id||'')||(body.after&&!UUID.test(body.after)))throw new HttpError(400,'Invalid campaign or cursor.');
-      return send(200,await runFeedbackBatch({db,campaignId:body.id,after:body.after||null,env}));
+      throw new HttpError(409,'Use the single-order Send invitation button. The legacy Vercel batch sender is disabled.');
     }
     if(body.action==='pause_campaign'){
       if(!UUID.test(body.id||''))throw new HttpError(400,'Invalid campaign.');
