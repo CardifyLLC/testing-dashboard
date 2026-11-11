@@ -7,6 +7,7 @@ import OrderList from './OrderList';
 import OrderDetail from './OrderDetail';
 import Customers from './Customers';
 import Analytics from './Analytics';
+import GrowthOperations from './GrowthOperations';
 import CardBatcherPro from './BatcherPRO';
 import Profiles from './Profiles';
 import Emailer from './Emailer';
@@ -307,7 +308,7 @@ const Dashboard = () => {
                                 className={`nav-item ${activeView === 'map' ? 'active' : ''}`}
                                 onClick={() => { setActiveView('map'); setMobileMenuOpen(false); }}
                             >
-                                <span>Map</span> Order Map
+                                <span aria-hidden="true">🗺️</span> Order Map
                             </div>
                             <div
                                 className={`nav-item ${activeView === 'deleted-stats' ? 'active' : ''}`}
@@ -316,6 +317,7 @@ const Dashboard = () => {
                                 <span>🗑️</span> Deleted Orders
                             </div>
 
+                            <button type="button" className="nav-item" onClick={() => { setActiveView('growth-operations'); setMobileMenuOpen(false); }}><span aria-hidden="true">📈</span> Growth and operations</button>
                         </nav>
 
                         <div className="sidebar-apps">
@@ -526,6 +528,7 @@ const Dashboard = () => {
                                         <AgentAccess />
                                     )}
                                     {activeView === 'team-access' && <TeamAccess />}
+                                    {activeView === 'growth-operations' && <GrowthOperations />}
 
                                     {activeView === 'prints-analytics' && (
                                         <PrintsAnalytics />

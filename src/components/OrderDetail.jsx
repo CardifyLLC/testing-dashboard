@@ -442,9 +442,9 @@ const OrderDetail = ({ order, onClose, onOrderUpdated }) => {
                 onOrderUpdated?.(result.order);
             }
 
-            const statusMessage = result?.email?.status === 'sent'
+            const statusMessage = result?.warning || (result?.email?.status === 'sent'
                 ? 'Refund created and email sent.'
-                : 'Refund created. Email requires follow-up.';
+                : 'Refund created. Email requires follow-up.');
 
             setRejectActionMessage(statusMessage);
             setRejectAdminNote('');
