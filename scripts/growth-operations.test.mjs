@@ -5,22 +5,23 @@ import { validateCampaign } from '../shared/feedback-campaign.mjs';
 import { reportingApprover, reportingCanReject } from '../server/reporting-authority.mjs';
 const id='00000000-0000-0000-0000-000000000001';
 
-test('testing approval permits both verified accounts while production stays restricted',()=>{
+test('testing approval permits all three verified accounts while production stays restricted',()=>{
   const testing={VITE_SUPABASE_URL:'https://jsxkyzdijoawzaiwfkfc.supabase.co'};
   const production={VITE_SUPABASE_URL:'https://dunoesykjvdnpeavojsi.supabase.co'};
-  for(const email of ['superiorvideo@gmail.com','placeparks@gmail.com']){
+  for(const email of ['superiorvideo@gmail.com','placeparks@gmail.com','hannanshoukat@gmail.com']){
     const user={id,email,email_confirmed_at:'2026-11-11'};
     assert.equal(reportingApprover(testing,user),id);
     assert.equal(decisionChange({id,version:1,status:'approved'},id,reportingApprover(testing,user)).status,'approved');
     assert.equal(reportingApprover(testing,{...user,email_confirmed_at:null}),null);
+    if(email!=='superiorvideo@gmail.com')assert.equal(reportingApprover(production,user),null);
   }
   assert.equal(reportingApprover(testing,{id,email:'other@example.com',email_confirmed_at:'2026-11-11'}),null);
   assert.equal(reportingApprover(production,{id,email:'placeparks@gmail.com',email_confirmed_at:'2026-11-11'}),null);
 });
 
-test('both verified testing accounts may reject but rejection permission cannot approve',()=>{
+test('all three verified testing accounts may reject but rejection permission cannot approve',()=>{
   const env={VITE_SUPABASE_URL:'https://jsxkyzdijoawzaiwfkfc.supabase.co'};
-  for(const email of ['superiorvideo@gmail.com','placeparks@gmail.com']){
+  for(const email of ['superiorvideo@gmail.com','placeparks@gmail.com','hannanshoukat@gmail.com']){
     const user={id,email,email_confirmed_at:'2026-11-11'};
     assert.equal(reportingCanReject(env,user),true);
     assert.equal(reportingCanReject(env,{...user,email_confirmed_at:null}),false);
