@@ -4,7 +4,7 @@ import config from '../config/reporting.production.json' with { type: 'json' };
 export function reportingCanReject(env, user) {
   return env.VITE_SUPABASE_URL === 'https://jsxkyzdijoawzaiwfkfc.supabase.co'
     && Boolean(user?.id && user.email_confirmed_at)
-    && ['superiorvideo@gmail.com', 'placeparks@gmail.com', 'hannanshoukat@gmail.com'].includes(user.email?.toLowerCase());
+    && ['superiorvideo@gmail.com', 'placeparks@gmail.com', 'hannanshoukat@gmail.com', 'kainatkhankhosa@gmail.com'].includes(user.email?.toLowerCase());
 }
 
 export function reportingApprover(env, user) {
