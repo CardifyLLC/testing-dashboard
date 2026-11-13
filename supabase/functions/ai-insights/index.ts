@@ -119,9 +119,8 @@ const callGemini = async (prompt: string, providedKey?: string): Promise<string>
 
 // ── Handler ────────────────────────────────────────────────────────────────────
 Deno.serve(async (req: Request) => {
-  // Intentionally disabled in testing, regardless of provider keys or environment flags.
-  const testingAiDisabled = true;
-  if (testingAiDisabled) return json(403, { error: 'AI insights are deliberately disabled in testing.' });
+  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  if (Deno.env.get('SUPABASE_URL') !== 'https://jsxkyzdijoawzaiwfkfc.supabase.co') return json(403, { error: 'Testing project required.' });
   try {
     await requireAdmin(req);
   } catch (error) {
@@ -143,7 +142,7 @@ Deno.serve(async (req: Request) => {
   if (!model) return json(400, { error: "model is required. Use: claude | openai | gemini" });
   try {
     const origin = Deno.env.get('DASHBOARD_APP_URL');
-    if (!origin || new URL(origin).protocol !== 'https:') throw new Error('Reporting origin is not configured.');
+    if (origin !== 'https://testing-dashboard-phi.vercel.app') throw new Error('Testing reporting origin is not configured.');
     const days = body.days || 7;
     if (![7,14,30].includes(days)) return json(400, { error: 'Use 7, 14 or 30 days.' });
     // Ignore client-supplied numbers. Fetch only the private, redacted server contract.
