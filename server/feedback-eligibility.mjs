@@ -19,9 +19,11 @@ export function evaluateEligibility({order:o,campaign:c,profiles,subscribers,ord
   const own=invitations.filter(i=>i.user_id===o.user_id);
   const campaignInvites=invitations.filter(i=>i.campaign_id===c.id);
   const existing=campaignInvites.find(i=>i.order_id===o.id);
-  const pending=existing?.status==='pending';
+  const pending=['pending','failed'].includes(existing?.status);
   if(existing&&!pending)reasons.push('Already invited for this campaign');
   if(pending){
+    if(existing.send_attempts>=3)reasons.push('Invitation retry limit');
+    if(existing.status==='failed'&&Date.parse(existing.updated_at)>now-15*60000)reasons.push('Retry available after 15-minute backoff');
     if(existing.user_id!==o.user_id)reasons.push('Invitation account changed');
     if(!Number.isFinite(Date.parse(existing.expires_at))||Date.parse(existing.expires_at)<=now)reasons.push('Invitation expired');
   }else{
@@ -41,7 +43,7 @@ export async function feedbackEligibility(db,campaignId,env){
   const [orders,profiles,subscribers,invitations]=await Promise.all([
     readAll(db,'orders'),readAll(db,'profiles','id,email'),
     readAll(db,'marketing_subscribers','email,status,consented_at,consent_text',q=>q,'email'),
-    readAll(db,'feedback_invitations','id,campaign_id,order_id,user_id,status,created_at,send_attempts,expires_at'),
+    readAll(db,'feedback_invitations','id,campaign_id,order_id,user_id,status,created_at,updated_at,send_attempts,expires_at'),
   ]);
   const blockers=[];
   try{validateCampaign(campaign);}catch{blockers.push('Campaign configuration incomplete');}

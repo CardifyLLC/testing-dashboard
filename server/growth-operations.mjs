@@ -30,6 +30,13 @@ export function createGrowthOperationsHandler({createClient,env=process.env,edge
     if(!checked(await db.from('dashboard_admins').select('user_id').eq('user_id',user.id).eq('enabled',true).maybeSingle()))throw new HttpError(403,'Administrator access required.');
     if(req.method==='GET'){
       const params=new URL(req.url||'/', 'https://internal.invalid').searchParams;
+      if(params.get('view')==='report-deliveries'){
+        const [deliveries,runs]=await Promise.all([
+          db.from('report_deliveries').select('id,delivery_key,recipient,status,send_attempts,provider_reference,next_attempt_at,updated_at').order('updated_at',{ascending:false}).limit(50),
+          db.from('growth_generation_runs').select('id,generation_key,status,attempts,updated_at,next_attempt_at').order('updated_at',{ascending:false}).limit(20),
+        ]);
+        return send(200,{deliveries:checked(deliveries),runs:checked(runs),canApprove:user.id===approver});
+      }
       if(params.get('view')==='feedback-eligibility'){
         const id=params.get('campaign_id');
         if(!UUID.test(id||''))throw new HttpError(400,'Invalid campaign.');
@@ -38,16 +45,31 @@ export function createGrowthOperationsHandler({createClient,env=process.env,edge
         return send(200,{...eligibility,canSend:user.id===approver});
       }
       const rows=await Promise.all(['growth_ideas','operation_exceptions','feedback_campaigns'].map(table=>db.from(table).select('*').order('created_at',{ascending:false}).limit(100)));
-      return send(200,{ideas:checked(rows[0]),exceptions:checked(rows[1]),campaigns:checked(rows[2]),canApprove:user.id===approver,canReject});
+      const deliveries=checked(await db.from('feedback_invitations').select('id,order_id,status,send_attempts,updated_at,provider_reference').in('status',['uncertain','sending']).order('updated_at',{ascending:true}).limit(100));
+      return send(200,{ideas:checked(rows[0]),exceptions:checked(rows[1]),campaigns:checked(rows[2]),deliveryReviews:deliveries,canApprove:user.id===approver,canReject});
     }
     if(Buffer.byteLength(typeof req.body==='string'?req.body:JSON.stringify(req.body)||'')>30000)throw new HttpError(413,'Request too large.');
     let body;try{body=typeof req.body==='string'?JSON.parse(req.body):req.body;}catch{throw new HttpError(400,'Invalid JSON.');}
     if(!body||typeof body!=='object')throw new HttpError(400,'Invalid request.');
+    if(body.action==='review_report_delivery'){
+      if(!approver||user.id!==approver)throw new HttpError(403,'Authorized approver required.');
+      if(!UUID.test(body.id||'')||!['accepted','not_accepted'].includes(body.outcome)||typeof body.reference!=='string'||!body.reference.trim()||body.reference.length>500||typeof body.note!=='string'||body.note.trim().length<10||body.note.length>2000)throw new HttpError(400,'Record the provider reference and review evidence.');
+      const result=await db.rpc('review_report_delivery',{p_delivery:body.id,p_actor:user.id,p_outcome:body.outcome,p_reference:body.reference,p_note:body.note});
+      if(result.error)throw new HttpError(409,'Report changed or is not awaiting review. Refresh first.');
+      return send(200,{review:result.data});
+    }
     if(body.action==='send_feedback_invitation'){
       if(!approver||user.id!==approver)throw new HttpError(403,'Professor approval required.');
       if(!UUID.test(body.id||'')||!UUID.test(body.order_id||'')||typeof body.expected_email!=='string'||body.expected_email.length>254)throw new HttpError(400,'Invalid invitation recipient.');
       try{return send(200,await edge({env,token,body:{action:'send',id:body.id,order_id:body.order_id,expected_email:body.expected_email}}));}
       catch(error){throw new HttpError(409,error.message);}
+    }
+    if(body.action==='review_feedback_delivery'){
+      if(!approver||user.id!==approver)throw new HttpError(403,'Authorized testing approver required.');
+      if(!UUID.test(body.id||'')||!['accepted','not_accepted'].includes(body.outcome)||typeof body.reference!=='string'||!body.reference.trim()||body.reference.length>500||typeof body.note!=='string'||body.note.trim().length<10||body.note.length>2000)throw new HttpError(400,'Record the provider reference and review evidence.');
+      const result=await db.rpc('review_feedback_delivery',{p_invitation:body.id,p_actor:user.id,p_outcome:body.outcome,p_reference:body.reference,p_note:body.note});
+      if(result.error)throw new HttpError(409,'Invitation changed or is not awaiting review. Refresh first.');
+      return send(200,{review:result.data});
     }
     if(body.action==='create_idea')return send(201,{idea:checked(await db.from('growth_ideas').insert({...validateIdea(body),created_by:user.id}).select().single())});
     if(body.action==='decide_idea'){
