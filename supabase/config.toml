@@ -35,3 +35,7 @@ verify_jwt = false
 # Authenticated by requireAdmin and rechecked by the atomic database claim.
 [functions.ship-envelope]
 verify_jwt = false
+
+# Authenticated with a dedicated job secret and pinned to the testing project.
+[functions.feedback-scheduler]
+verify_jwt = false
