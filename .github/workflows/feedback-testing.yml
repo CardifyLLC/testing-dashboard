@@ -1,0 +1,29 @@
+name: Testing feedback scheduler
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '6,21,36,51 * * * *'
+permissions:
+  contents: read
+concurrency:
+  group: testing-feedback
+  cancel-in-progress: false
+jobs:
+  scan:
+    if: vars.FEEDBACK_AUTOMATION_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Scan approved testing campaign
+        env:
+          FEEDBACK_JOB_SECRET: ${{ secrets.FEEDBACK_JOB_SECRET }}
+        run: node scripts/feedback-scheduled.mjs
+      - name: Independent fallback alert
+        if: failure()
+        env:
+          ALERT_URL: ${{ secrets.OPERATIONS_ALERT_WEBHOOK_URL }}
+        run: node scripts/operations-fallback-alert.mjs
