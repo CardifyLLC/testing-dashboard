@@ -383,8 +383,7 @@ const Analytics = ({ orders, onRefreshOrders, refreshingOrders = false }) => {
 
     // ── AI Insights ───────────────────────────────────────────────────────────
     const generateInsights = async () => {
-        const testingAiDisabled = true;
-        if (testingAiDisabled) { setAiError('AI insights are deliberately disabled in testing.'); return; }
+        if (import.meta.env.VITE_AI_INSIGHTS_ENABLED !== 'true') { setAiError('Testing AI insights are waiting for readiness verification.'); return; }
         setAiLoading(true);
         setAiError('');
         setAiInsight('');
@@ -776,8 +775,8 @@ const Analytics = ({ orders, onRefreshOrders, refreshingOrders = false }) => {
                     </div>
 
                     {/* Generate button */}
-                    <p>AI insights are deliberately disabled in testing.</p>
-                    <button onClick={generateInsights} disabled={true} style={{
+                    {import.meta.env.VITE_AI_INSIGHTS_ENABLED !== 'true' && <p>Testing AI insights are waiting for readiness verification.</p>}
+                    <button onClick={generateInsights} disabled={aiLoading || import.meta.env.VITE_AI_INSIGHTS_ENABLED !== 'true'} style={{
                         padding: '6px 20px', borderRadius: '8px', border: 'none', cursor: aiLoading ? 'not-allowed' : 'pointer',
                         background: aiLoading ? 'var(--bg-secondary)' : 'linear-gradient(135deg, #6366f1, #8b5cf6)',
                         color: aiLoading ? 'var(--text-muted)' : '#fff', fontSize: '0.85rem', fontWeight: '700',
