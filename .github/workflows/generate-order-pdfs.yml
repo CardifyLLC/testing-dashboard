@@ -30,7 +30,7 @@ jobs:
       MAX_ATTEMPTS: '5'
       GITHUB_WORKFLOW_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       GITHUB_REPOSITORY_NAME: ${{ github.repository }}
-      CUSTOMER_APP_URL: ${{ vars.CUSTOMER_APP_URL || 'https://tcgplaytest.com' }}
+      CUSTOMER_APP_URL: ${{ vars.CUSTOMER_APP_URL || 'https://testing123-prof.vercel.app' }}
       ORDER_PDF_WEBHOOK_SECRET: ${{ secrets.ORDER_PDF_WEBHOOK_SECRET }}
     steps:
       - name: Check out repository
