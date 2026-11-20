@@ -1,4 +1,5 @@
-import { isPartnerOrder } from '../src/services/partnerArtwork.mjs';
+import { isPartnerImage } from '../src/services/partnerArtwork.mjs';
+import { createPartnerPdfArtworkClient, PartnerArtworkPendingError, PARTNER_ARTWORK_WAIT_PREFIX, partnerPdfRetryReady } from './partner-order-pdf.mjs';
 import { createClient } from '@supabase/supabase-js';
 import { buildOrderPdfParts, cardsFromOrder, generateOrderPdf, prepareOrderImage, TARGET_DPI, IMAGE_QUALITY } from './order-pdf-document.mjs';
 import { downloadOrderImage } from './download-order-image.mjs';
@@ -17,6 +18,7 @@ const MAX_ATTEMPTS = Math.max(1, Number.parseInt(process.env.MAX_ATTEMPTS || '5'
 const STALE_MS = 30 * 60 * 1000;
 class MissingImageCandidateError extends Error {}
 class MissingOrderImageError extends Error {}
+const partnerArtwork = createPartnerPdfArtworkClient();
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
   throw new Error('SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required.');
@@ -37,6 +39,8 @@ const fetchImage = async urls => {
         const match = url.match(/^data:[^;,]+;base64,(.+)$/s);
         if (!match) throw new MissingImageCandidateError('invalid inline image data');
         bytes = Buffer.from(match[1], 'base64');
+      } else if (isPartnerImage(url)) {
+        bytes = await partnerArtwork.download(url);
       } else {
         const response = await downloadOrderImage(url, {
           apikey: SUPABASE_SERVICE_ROLE_KEY, Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
@@ -82,7 +86,7 @@ const backfillMissingJobs = async () => {
     .from('orders').select('id,metadata').ilike('status', 'paid').order('created_at', { ascending: true }).limit(1000);
   if (ordersError) throw ordersError;
   if (!paidOrders?.length) return;
-  const ids = paidOrders.filter(order=>!isPartnerOrder(order)).map(order => order.id);
+  const ids = paidOrders.map(order => order.id);
   if (!ids.length) return;
   const existing = await readPdfJobsForOrders(supabase, ids, { select: 'order_id' });
   const existingIds = new Set((existing || []).map(job => job.order_id));
@@ -103,14 +107,14 @@ const findJobs = async () => {
     .order('created_at', { ascending: false }).limit(1000);
   if (ordersError) throw ordersError;
   if (!recentOrders?.length) return [];
-  const recentIds = recentOrders.filter(order=>!isPartnerOrder(order)).map(order => order.id);
+  const recentIds = recentOrders.map(order => order.id);
   if (!recentIds.length) return [];
   const data = await readPdfJobsForOrders(supabase, recentIds, { maxAttempts: MAX_ATTEMPTS });
   const jobsByOrderId = new Map((data || []).map(job => [job.order_id, job]));
   const cutoff = Date.now() - STALE_MS;
   return recentIds
     .map(orderId => jobsByOrderId.get(orderId))
-    .filter(job => job && (
+    .filter(job => job && partnerPdfRetryReady(job) && (
       job.status === 'failed' || !job.started_at || new Date(job.started_at).getTime() < cutoff || Number(job.processed_cards || 0) === 0
     ))
     .slice(0, MAX_ORDERS);
@@ -137,8 +141,9 @@ const processJob = async job => {
     attempt_count: Number(job.attempt_count || 0) + 1,
   });
   try {
-    const { data: order, error } = await supabase.from('orders').select('*').eq('id', job.order_id).single();
+    const { data: storedOrder, error } = await supabase.from('orders').select('*').eq('id', job.order_id).single();
     if (error) throw error;
+    const order = await partnerArtwork.prepareOrder(storedOrder);
     if (String(order.status || '').toLowerCase() !== 'paid' && !(order.promo_reprint_requested && ['shipped','processing','completed'].includes(String(order.status).toLowerCase()))) throw new Error('Order is no longer printable.');
     const customerCards = cardsFromOrder(order, SUPABASE_URL);
     if (!customerCards.length) throw new Error('Order has no printable cards.');
@@ -183,6 +188,16 @@ const processJob = async job => {
     }
     console.log(`Completed ${order.id}.`);
   } catch (error) {
+    if (error instanceof PartnerArtworkPendingError) {
+      await updateJob(job.order_id, {
+        status: 'processing', started_at: startedAt, processed_cards: 0,
+        attempt_count: Number(job.attempt_count || 0),
+        error_message: `${PARTNER_ARTWORK_WAIT_PREFIX} ${error.message}`,
+        repair_required: false,
+      });
+      console.log(`Waiting for partner artwork for ${job.order_id}.`);
+      return;
+    }
     const message = error instanceof Error ? error.message : String(error);
     const repairRequired = error instanceof MissingOrderImageError;
     const nextAttemptCount = Number(job.attempt_count || 0) + 1;

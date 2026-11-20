@@ -1,5 +1,6 @@
 import { degrees, PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import sharp from 'sharp';
+import { isPartnerImage } from '../src/services/partnerArtwork.mjs';
 import { cardStock, sheetDimensions } from '../src/services/batcherStock.mjs';
 
 export const TARGET_DPI = 1200;
@@ -50,6 +51,7 @@ export function cardsFromOrder(order, supabaseUrl) {
   const imageCandidates = value => {
     const path = typeof value === 'string' ? value.trim() : '';
     if (!path) return [];
+    if (isPartnerImage(path)) return [path];
     if (/^(?:data:|https?:\/\/)/i.test(path)) return [path];
     const normalized = path.replace(/^\/+/, '').replace(/^order-images\//i, '')
       .replace(/^storage\/v1\/object\/(?:authenticated\/|public\/)?order-images\//i, '');
