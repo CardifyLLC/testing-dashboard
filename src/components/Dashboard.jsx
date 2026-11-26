@@ -19,6 +19,7 @@ import PartnershipRequests from './PartnershipRequests';
 import AffiliateOrders from './AffiliateOrders';
 import SharedDeckRequests from './SharedDeckRequests';
 import PrintsAnalytics from './PrintsAnalytics';
+import PrintsLeaderboard from './PrintsLeaderboard';
 import PromoCards from './PromoCards';
 import EmailCampaignHistory from './EmailCampaignHistory';
 import ShipmentTracking from './ShipmentTracking';
@@ -246,6 +247,9 @@ const Dashboard = () => {
                             >
                                 <span><Coins size={18} /></span> PRINTS Analytics
                             </div>
+                            <button type="button" className={`nav-item ${activeView === 'prints-leaderboard' ? 'active' : ''}`} onClick={() => { setActiveView('prints-leaderboard'); setMobileMenuOpen(false); }} style={{ width: '100%', font: 'inherit', textAlign: 'left' }}>
+                                <span aria-hidden="true">🏆</span> Prints leaderboard
+                            </button>
                             <button
                                 type="button"
                                 className={`nav-item ${activeView === 'promo-cards' ? 'active' : ''}`}
@@ -533,6 +537,7 @@ const Dashboard = () => {
                                     {activeView === 'prints-analytics' && (
                                         <PrintsAnalytics />
                                     )}
+                                    {activeView === 'prints-leaderboard' && <PrintsLeaderboard />}
                                     {activeView === 'promo-cards' && <PromoCards />}
 
                                     {activeView === 'subscribers' && (
